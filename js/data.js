@@ -7,17 +7,21 @@ export const GRAMMAR_JSON = 'https://bohoa96tb.github.io/HSK3.0/data/content.jso
 export const VOCAB_WORD_URL = id => `https://bohoa96tb.github.io/hazi-viet/vocabulary.html?word=${encodeURIComponent(id)}`;
 export const GRAMMAR_LESSON_URL = id => `https://bohoa96tb.github.io/HSK3.0/#/lesson/${encodeURIComponent(id)}`;
 
-const CACHE_V = 'hsk-daily.cache.vocab-v2';
-const CACHE_G = 'hsk-daily.cache.grammar-v2';
+const CACHE_V = 'hsk-daily.cache.vocab-v3';
+const CACHE_G = 'hsk-daily.cache.grammar-v3';
+const SLIM_VERSION = 3;
 
-function cacheGet(k) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && v.slim ? v : null; } catch { return null; } }
-function cacheSet(k, slim) { try { localStorage.setItem(k, JSON.stringify({ at: Date.now(), slim })); } catch { /* cache is optional */ } }
+function cacheGet(k) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && v.slim && v.slimVersion === SLIM_VERSION ? v : null; } catch { return null; } }
+function cacheSet(k, slim) { try { localStorage.setItem(k, JSON.stringify({ at: Date.now(), slimVersion: SLIM_VERSION, slim })); } catch { /* cache is optional */ } }
 
 export function slimVocab(raw) {
   if (!raw || raw.schemaVersion !== 2 || !Array.isArray(raw.words) || !Array.isArray(raw.lessons)) throw new Error('Dữ liệu từ vựng không đúng phiên bản.');
   const words = {};
   for (const w of raw.words) {
-    words[w.id] = { id: w.id, hanzi: w.hanzi, pinyin: (w.intro && w.intro[0] && w.intro[0].pinyin) || '', meaning: w.meaning || '', level: w.level, status: w.status };
+    const ex = (w.examples && w.examples[0]) || null;
+    words[w.id] = { id: w.id, hanzi: w.hanzi, pinyin: (w.intro && w.intro[0] && w.intro[0].pinyin) || '', meaning: w.meaning || '', level: w.level, status: w.status,
+      readings: (w.intro || []).map(i => i.pinyin).filter(Boolean),
+      example: ex ? { zh: ex.zh || '', vi: ex.vi || '', pinyin: ex.pinyin || '' } : null };
   }
   const lessons = raw.lessons.map(l => ({ id: l.id, level: l.level, number: l.number, title: l.title, wordIds: [...l.wordIds] }));
   return { lessons, words };
@@ -40,7 +44,10 @@ export function slimGrammar(raw) {
       minutes: (c.intro && c.intro.estimatedMinutes) || null,
       points: (c.knowledgePoints || []).map(k => ({
         id: k.id, title: k.title, explanationVi: k.explanationVi || '', pattern: k.pattern || '',
+        positionVi: k.positionVi || '', useWhenVi: k.useWhenVi || '',
+        examples: (k.examples || []).slice(0, 3).map(e => ({ zh: e.zh, pinyin: e.pinyin || '', noteVi: e.noteVi || '' })),
         example: (k.examples && k.examples[0]) ? { zh: k.examples[0].zh, pinyin: k.examples[0].pinyin || '', noteVi: k.examples[0].noteVi || '' } : null,
+        quickCheck: k.quickCheck ? { questionVi: k.quickCheck.questionVi || '', stemZh: k.quickCheck.stemZh || '', options: (k.quickCheck.options || []).map(o => ({ zh: o.zh, vi: o.vi || '' })), answer: Number(k.quickCheck.answer) || 1, explanationVi: k.quickCheck.explanationVi || '' } : null,
       })),
     });
   }

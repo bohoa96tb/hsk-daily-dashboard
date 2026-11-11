@@ -71,7 +71,10 @@ t('day progress 8/24 then 24/24', () => {
 t('classification needs real checks', () => {
   assert.equal(Core.classifyWord(null, { self: 'known' }), 'new');
   const it = Core.createItem('word', 'a', '2026-11-11'); it.correct = 3; it.completedStages = [1, 3];
-  assert.equal(Core.classifyWord(it), 'good');
+  assert.equal(Core.classifyWord(it), 'learning'); // V1.2: R1+R3 alone no longer earns 'good'
+  const it2 = Core.createItem('word', 'a2', '2026-11-01'); it2.completedStages = [1, 3, 7];
+  it2.checkHistory = [1, 3, 7].map(st => ({ date: '2026-11-05', kind: 'review', stage: st, correct: true }));
+  assert.equal(Core.classifyWord(it2), 'good'); // through R7 with spaced success
   const bad = Core.createItem('word', 'b', '2026-11-11'); bad.wrong = 2;
   assert.equal(Core.classifyWord(bad), 'weak');
 });
@@ -217,6 +220,99 @@ t('V1.1 due priority overdue > due-today > extra', () => {
   s.items['word:x'] = Core.createItem('word', 'x', '2026-11-10'); s.items['word:x'].due = null; s.items['word:x'].extraDue = '2026-11-11';
   const order = Core.dueEntries(s, '2026-11-11').map(e => `${e.item.id}:${e.type}`);
   assert.deepEqual(order, ['late:regular', 'now:regular', 'x:extra']);
+});
+
+// ---------- V1.2 ----------
+const mkDay = (st, date, wordIds) => { const d = { date, vocabLessonId: null, grammarLessonId: null, wordIds, wordChecks: {}, grammarStatus: 'not', tasksDone: {}, reviewsDone: 0, reviewTotal: 0, vocabFinalized: false, grammarFinalized: false, grammarChecks: {}, grammarWeakKps: [] }; st.days[date] = d; return d; };
+const stateWithItem = (learned) => { const st = Core.freshState(); st.items['word:w1'] = Core.createItem('word', 'w1', learned); return st; };
+t('V1.2 F1: wrong regular review does not reappear the same day', () => {
+  const st = stateWithItem('2026-11-11');
+  const r = Core.gradeItem(st.items['word:w1'], false, '2026-11-12');
+  st.items['word:w1'] = r.item;
+  const entries = Core.dueEntries(st, '2026-11-12').filter(e => e.key === 'word:w1');
+  assert.equal(entries.filter(e => e.type === 'regular').length, 0);
+  assert.equal(entries.filter(e => e.type === 'extra').length, 0); // extra is due tomorrow
+  assert.equal(Core.dueEntries(st, '2026-11-13').filter(e => e.key === 'word:w1' && e.type === 'extra').length, 1);
+});
+t('V1.2 F2: dayProgress never exceeds the words assigned today', () => {
+  const st = Core.freshState();
+  const day = mkDay(st, '2026-11-11', ['a', 'b']);
+  Core.recordQuiz(st, day, 'a', true, '2026-11-11');
+  Core.recordQuiz(st, day, 'zzz-old-word', true, '2026-11-11'); // foreign pool word
+  const p = Core.dayProgress(st, '2026-11-11');
+  assert.ok(p.wordsDone <= 2 && p.pct <= 100);
+});
+t('V1.2 F3: merge keeps finalized flags (no skipped lesson afterwards)', () => {
+  const a = Core.freshState(); const b = Core.freshState();
+  const da = mkDay(a, '2026-11-11', []); da.vocabFinalized = false;
+  const db = mkDay(b, '2026-11-11', []); db.vocabFinalized = true; db.grammarFinalized = true; db.tasksDone = { t1: true };
+  const m = Core.mergeStates(a, b.state ?? b);
+  assert.equal(m.days['2026-11-11'].vocabFinalized, true);
+  assert.equal(m.days['2026-11-11'].grammarFinalized, true);
+  assert.equal(m.days['2026-11-11'].tasksDone.t1, true);
+});
+t('V1.2 F4: merge does not lose mastery or check history', () => {
+  const a = Core.freshState(); const b = Core.freshState();
+  const ia = Core.createItem('word', 'x', '2026-11-01'); ia.correct = 5; ia.nextStage = 2; ia.checkHistory = [{ date: '2026-11-02', kind: 'review', stage: 1, correct: true }];
+  const ib = Core.createItem('word', 'x', '2026-11-01'); ib.correct = 3; ib.wrong = 1; ib.mastered = true; ib.quizCorrect = 9; ib.checkHistory = [{ date: '2026-11-03', kind: 'quiz', correct: true }];
+  a.items['word:x'] = ia; b.items['word:x'] = ib;
+  const m = Core.mergeStates(a, b);
+  assert.equal(m.items['word:x'].mastered, true);
+  assert.equal(m.items['word:x'].checkHistory.length, 2);
+});
+t('V1.2 F7: malformed backups are rejected before touching state', () => {
+  const bad = { app: 'hsk-daily-dashboard', version: 1, exportedAt: 'x', state: { days: { '2026-11-11': null }, items: { 'word:a': { kind: 'word' } }, curriculum: {} } };
+  assert.throws(() => Core.validateBackup(bad));
+  const bad2 = { app: 'hsk-daily-dashboard', version: 1, exportedAt: 'x', state: { days: {}, items: { 'word:a': { kind: 'word', completedStages: 'no', nextStage: 0 } }, curriculum: {} } };
+  assert.throws(() => Core.validateBackup(bad2));
+});
+t('V1.2 F8: importing a backup does not create a study streak', () => {
+  const st = Core.freshState();
+  st.history = [{ date: '2026-11-10', action: 'import', detail: 'x' }, { date: '2026-11-11', action: 'import-replace', detail: 'x' }];
+  assert.equal(Core.streakDays(st, '2026-11-11'), 0);
+});
+t('V1.2 recall grading: fuzzy holds the stage, clear advances, forgot fails', () => {
+  const it = Core.createItem('word', 'r', '2026-11-11');
+  const fuzzy = Core.gradeReviewRecall(it, 1, '2026-11-12');
+  assert.equal(fuzzy.changed, true);
+  assert.equal(fuzzy.item.nextStage, 0);
+  assert.equal(fuzzy.item.due, '2026-11-13');
+  assert.equal(fuzzy.item.extraDue, null);
+  const clear = Core.gradeReviewRecall(it, 2, '2026-11-12');
+  assert.equal(clear.item.nextStage, 1);
+  const forgot = Core.gradeReviewRecall(it, 0, '2026-11-12');
+  assert.equal(forgot.item.weak, true);
+  assert.equal(forgot.item.extraDue, '2026-11-13');
+});
+t('V1.2 quiz farming cannot create "good"; retention counts only spaced reviews', () => {
+  const st = Core.freshState();
+  const day = mkDay(st, '2026-11-11', ['f']);
+  st.items['word:f'] = Core.buildWordItem(day, 'f', '2026-11-11');
+  const d2 = mkDay(st, '2026-11-12', []);
+  for (let i = 0; i < 10; i++) Core.recordQuiz(st, d2, 'f', true, '2026-11-12');
+  assert.notEqual(Core.classifyWord(st.items['word:f']), 'good');
+  assert.equal(Core.retention(st), null);
+  const it = st.items['word:f']; it.checkHistory.push({ date: '2026-11-18', kind: 'review', stage: 7, correct: true }, { date: '2026-11-25', kind: 'review', stage: 14, correct: false });
+  assert.equal(Core.retention(st).pct, 50);
+});
+t('V1.2 F9/F10: extra reviews use separate counters; quiz on mastered is recorded', () => {
+  const it = Core.createItem('word', 'e', '2026-11-11');
+  const g = Core.gradeExtra(it, true, '2026-11-12');
+  assert.equal(g.extraCorrect, 1); assert.equal(g.correct, 0);
+  const st = Core.freshState(); const day = mkDay(st, '2026-11-12', []);
+  const m = Core.createItem('word', 'm', '2026-10-01'); m.mastered = true; st.items['word:m'] = m;
+  Core.recordQuiz(st, day, 'm', false, '2026-11-12');
+  assert.equal(st.items['word:m'].quizWrong, 1);
+  assert.equal(st.items['word:m'].mastered, true);
+  assert.equal(st.items['word:m'].extraDue, null);
+});
+t('V1.2 grammar quickCheck gate data: kpWeak survives merge', () => {
+  const a = Core.freshState(); const b = Core.freshState();
+  const ia = Core.createItem('grammar', 'g1', '2026-11-01'); ia.kpWeak = ['kp1'];
+  const ib = Core.createItem('grammar', 'g1', '2026-11-01'); ib.kpWeak = ['kp2'];
+  a.items['grammar:g1'] = ia; b.items['grammar:g1'] = ib;
+  const m = Core.mergeStates(a, b);
+  assert.deepEqual(m.items['grammar:g1'].kpWeak.sort(), ['kp1', 'kp2']);
 });
 
 console.log(`\n${pass} tests passed`);

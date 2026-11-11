@@ -1,6 +1,6 @@
 // Storage: IndexedDB primary, localStorage fallback for state; localStorage for small settings.
 // Versioned payload + save-failure reporting. No cloud sync is claimed anywhere.
-import { freshState, DATA_VERSION } from './core.js?v=3';
+import { freshState, DATA_VERSION } from './core.js?v=4';
 
 const DB_NAME = 'hsk-daily-dashboard';
 const LS_STATE = 'hsk-daily-dashboard.state-v1';
@@ -35,20 +35,20 @@ async function idbSet(key, val) {
 }
 
 export async function loadState(onWarn) {
-  try {
-    const v = await idbGet('state');
-    if (v && v.version === DATA_VERSION) return v;
-  } catch { /* fall through to localStorage */ }
-  try {
-    const raw = localStorage.getItem(LS_STATE);
-    if (raw) { const v = JSON.parse(raw); if (v && v.version === DATA_VERSION) return v; }
-  } catch { onWarn && onWarn('Không đọc được dữ liệu đã lưu. Bắt đầu với dữ liệu trống — hãy khôi phục từ bản sao lưu nếu có.'); }
+  // F5: both stores are read and the NEWER copy wins (updatedAt), so a session
+  // that fell back to localStorage is never silently rolled back by IndexedDB.
+  let idbState = null, lsState = null;
+  try { const v = await idbGet('state'); if (v && v.version === DATA_VERSION) idbState = v; } catch { /* ignore */ }
+  try { const raw = localStorage.getItem(LS_STATE); if (raw) { const v = JSON.parse(raw); if (v && v.version === DATA_VERSION) lsState = v; } } catch { onWarn && onWarn('Không đọc được dữ liệu đã lưu. Bắt đầu với dữ liệu trống — hãy khôi phục từ bản sao lưu nếu có.'); }
+  if (idbState && lsState) return (lsState.updatedAt || 0) > (idbState.updatedAt || 0) ? lsState : idbState;
+  if (idbState || lsState) return idbState || lsState;
   const s = freshState(); s.createdAt = new Date().toISOString();
   return s;
 }
 
 let saveOk = true;
 export async function saveState(state, onWarn) {
+  state.updatedAt = Date.now();
   let ok = false;
   try { await idbSet('state', state); ok = true; } catch { /* try fallback */ }
   if (!ok) {
