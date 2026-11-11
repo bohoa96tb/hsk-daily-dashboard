@@ -1,6 +1,6 @@
-import * as Core from './core.js?v=6';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=6';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=6';
+import * as Core from './core.js?v=7';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=7';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=7';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -544,7 +544,7 @@ function viewSettings() {
   const shift = shiftOf(today);
   if (!schedShift) schedShift = shift;
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.2')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.3')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>
@@ -567,6 +567,10 @@ function viewSettings() {
     <p class="muted">Chỉ đổi khi bạn muốn bắt đầu từ vị trí khác. Ngày hôm nay đã tạo sẽ giữ nguyên bài đã giao.</p>
     <p id="posPreview" class="pos-preview"></p>
     <button class="btn block" id="applyToday">Đổi cả bài của hôm nay sang vị trí này</button>
+    <div id="applyConfirm" hidden>
+      <p id="applyText"></p>
+      <div class="row"><button class="btn primary grow" id="applyYes">Xác nhận đổi bài hôm nay</button><button class="btn grow" id="applyNo">Hủy</button></div>
+    </div>
     <p id="posMsg" class="pos-msg" role="status"></p></section>
   <section class="card"><h2>Lịch học (sửa trực tiếp)</h2>
     <label>Đang sửa lịch của<select id="schedShift"><option value="day" ${schedShift === 'day' ? 'selected' : ''}>Ca ngày</option><option value="night" ${schedShift === 'night' ? 'selected' : ''}>Ca tối</option></select></label>
@@ -604,7 +608,7 @@ function viewSettings() {
     $('#posMsg').textContent = '✓ Đã cập nhật vị trí học. Áp dụng cho ngày học tiếp theo.';
   };
   $('#loadMode').onchange = async e => { settings.loadMode = e.target.value; await persist(); $('#loadMsg').textContent = '✓ Đã đổi mức tải — áp dụng từ ngày học tiếp theo.'; };
-  $('#applyToday').onclick = async () => {
+  $('#applyToday').onclick = () => {
     const day = ensureDay();
     const vl = state.curriculum.vocabDone ? null : vocab.lessons[state.curriculum.vocabIndex] || null;
     const gl = state.curriculum.grammarDone ? null : grammar.lessons[state.curriculum.grammarIndex] || null;
@@ -613,13 +617,18 @@ function viewSettings() {
     if (vl && day.vocabLessonId !== vl.id) parts.push(`Từ vựng — HSK ${vl.level} · Bài ${vl.number}: ${vl.title}`);
     if (gl && day.grammarLessonId !== gl.id) parts.push(`Ngữ pháp — ${gl.level} · Bài ${gl.number}: ${gl.titleVi}`);
     const note = (day.vocabFinalized || day.grammarFinalized)
-      ? '\n\nBài hôm nay đã chốt trước đó vẫn giữ nguyên lịch ôn đã tạo; không có mục ôn nào bị tạo trùng.'
-      : '\n\nTừ đã học thuộc bài cũ hôm nay (nếu có) sẽ không được tính vào lịch ôn. Lịch ôn tập và dữ liệu cũ không thay đổi.';
-    if (!confirm(`Đổi cả bài hôm nay sang:\n${parts.join('\n')}${note}`)) return;
-    Core.reassignToday(state, day, vl, gl, loadMode().target);
-    log('position-apply-today', `${vl ? vl.id : '-'}|${gl ? gl.id : '-'}`);
-    await persist();
-    $('#posMsg').textContent = '✓ Đã đổi cả bài hôm nay. Mở tab “Hôm nay” để học bài mới.';
+      ? 'Bài hôm nay đã chốt trước đó vẫn giữ nguyên lịch ôn đã tạo; không có mục ôn nào bị tạo trùng.'
+      : 'Từ đã học thuộc bài cũ hôm nay (nếu có) sẽ không được tính vào lịch ôn. Lịch ôn tập và dữ liệu cũ không thay đổi.';
+    $('#applyText').innerHTML = `<strong>Đổi cả bài hôm nay sang:</strong><br>${parts.map(esc).join('<br>')}<br><span class="muted">${esc(note)}</span>`;
+    const box = $('#applyConfirm'); box.hidden = false;
+    $('#applyYes').onclick = async () => {
+      Core.reassignToday(state, ensureDay(), vl, gl, loadMode().target);
+      log('position-apply-today', `${vl ? vl.id : '-'}|${gl ? gl.id : '-'}`);
+      await persist();
+      box.hidden = true;
+      $('#posMsg').textContent = '✓ Đã đổi cả bài hôm nay. Mở tab “Hôm nay” để học bài mới.';
+    };
+    $('#applyNo').onclick = () => { box.hidden = true; };
   };
   $('#schedShift').onchange = e => { schedShift = e.target.value; render(); };
   const sched = settings.schedules[schedShift];
