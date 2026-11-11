@@ -1,6 +1,6 @@
 // Storage: IndexedDB primary, localStorage fallback for state; localStorage for small settings.
 // Versioned payload + save-failure reporting. No cloud sync is claimed anywhere.
-import { freshState, DATA_VERSION } from './core.js?v=1';
+import { freshState, DATA_VERSION } from './core.js?v=2';
 
 const DB_NAME = 'hsk-daily-dashboard';
 const LS_STATE = 'hsk-daily-dashboard.state-v1';
@@ -71,6 +71,6 @@ export function exportJson(state, settings) {
 }
 export function parseImport(text) {
   const data = JSON.parse(text);
-  if (!data || data.app !== 'hsk-daily-dashboard' || !data.state) throw new Error('File không phải bản sao lưu của HSK Daily Dashboard.');
+  if (!data || data.app !== 'hsk-daily-dashboard' || !data.state || data.version !== DATA_VERSION || !data.state.days || !data.state.items) throw new Error('File không phải bản sao lưu hợp lệ của HSK Daily Dashboard.');
   return data;
 }

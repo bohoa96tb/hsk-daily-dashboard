@@ -62,3 +62,12 @@ nav.tabs button.active{color:var(--accent);font-weight:700}
 .warn{background:#fdf3e3;border-bottom:1px solid #ecd9ae;padding:10px 14px;font-size:14px;text-align:center}
 .loading{text-align:center;color:var(--muted);margin-top:60px}
 .center{display:block;text-align:center}
+
+.next-action{border-color:#f0d9a8;background:#fffdf4}
+.next-label{font-size:19px;font-weight:700;margin:4px 0}
+.chip.overdue{background:#fbeae6;border-color:#eec2b6;color:#8c2f1d;font-weight:600}
+.warn-text{color:#b3402a}
+.done-all{border-color:#bfe0cd;background:#f4faf6}
+.zh.big{overflow-wrap:anywhere}
+main{overflow-x:hidden}
+table.stat td:first-child{padding-right:8px}

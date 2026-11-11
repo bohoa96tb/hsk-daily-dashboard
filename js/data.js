@@ -49,19 +49,31 @@ export function slimGrammar(raw) {
 
 export async function loadVocab(force = false) {
   if (!force) { const c = cacheGet(CACHE_V); if (c && Date.now() - c.at < 24 * 3600 * 1000) return { ...c.slim, fromCache: true }; }
-  const r = await fetch(VOCAB_JSON);
-  if (!r.ok) throw new Error(`Không tải được dữ liệu từ vựng (HTTP ${r.status}).`);
-  const slim = slimVocab(await r.json());
-  cacheSet(CACHE_V, slim);
-  return { ...slim, fromCache: false };
+  try {
+    const r = await fetch(VOCAB_JSON);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const slim = slimVocab(await r.json());
+    cacheSet(CACHE_V, slim);
+    return { ...slim, fromCache: false };
+  } catch (e) {
+    const c = cacheGet(CACHE_V); // stale cache is better than a dead app (offline)
+    if (c) return { ...c.slim, fromCache: true, stale: true };
+    throw new Error('Không tải được dữ liệu từ vựng và chưa có bản lưu tạm.');
+  }
 }
 export async function loadGrammar(force = false) {
   if (!force) { const c = cacheGet(CACHE_G); if (c && Date.now() - c.at < 24 * 3600 * 1000) return { ...c.slim, fromCache: true }; }
-  const r = await fetch(GRAMMAR_JSON);
-  if (!r.ok) throw new Error(`Không tải được dữ liệu ngữ pháp (HTTP ${r.status}).`);
-  const slim = slimGrammar(await r.json());
-  cacheSet(CACHE_G, slim);
-  return { ...slim, fromCache: false };
+  try {
+    const r = await fetch(GRAMMAR_JSON);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const slim = slimGrammar(await r.json());
+    cacheSet(CACHE_G, slim);
+    return { ...slim, fromCache: false };
+  } catch (e) {
+    const c = cacheGet(CACHE_G);
+    if (c) return { ...c.slim, fromCache: true, stale: true };
+    throw new Error('Không tải được dữ liệu ngữ pháp và chưa có bản lưu tạm.');
+  }
 }
 
 // Read-only peek at the two apps' own progress (same origin localStorage).
