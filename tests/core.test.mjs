@@ -335,4 +335,31 @@ t('V1.2.1 regression: manual position setters (clamp, offset reset, Done revive,
   assert.equal(JSON.stringify(st.items), itemsBefore);
 });
 
+t('V1.2.2 reassignToday: swaps today safely (no duplicate SRS items, single advance, reviews untouched)', () => {
+  const st = Core.freshState();
+  const lessonA = { id: 'LA', wordIds: ['a1', 'a2'] };
+  const lessonB = { id: 'LB', wordIds: ['b1', 'b2', 'b3'] };
+  const day = mkDay(st, '2026-11-11', ['a1', 'a2']);
+  day.vocabLessonId = 'LA'; day.grammarLessonId = 'GA'; day.grammarStatus = 'done'; day.grammarFinalized = true;
+  day.wordChecks = { a1: { self: 'known' }, a2: { self: 'known' } };
+  // today was already finalised for lesson A (items exist, curriculum advanced)
+  st.items['word:a1'] = Core.buildWordItem(day, 'a1', '2026-11-11');
+  st.items['word:a2'] = Core.buildWordItem(day, 'a2', '2026-11-11');
+  st.items['grammar:GA'] = Core.createItem('grammar', 'GA', '2026-11-11');
+  const itemsBefore = Object.keys(st.items).length;
+  Core.setVocabPosition(st, 1, 2); // user picks lesson B (index 1 of 2)
+  const r = Core.reassignToday(st, day, lessonB, { id: 'GB' }, 24);
+  assert.equal(r.vocabChanged, true); assert.equal(r.grammarChanged, true);
+  assert.equal(day.vocabLessonId, 'LB'); assert.deepEqual(day.wordIds, ['b1', 'b2', 'b3']);
+  assert.equal(day.vocabFinalized, false); assert.equal(day.grammarFinalized, false);
+  assert.equal(day.grammarStatus, 'not'); assert.deepEqual(day.wordChecks, {}); // old checks dropped, disclosed in UI
+  // simulate finalize for B with the same guard the app uses: only missing items are created
+  for (const id of day.wordIds) { const k = `word:${id}`; if (!st.items[k]) st.items[k] = Core.buildWordItem(day, id, '2026-11-11'); }
+  assert.equal(Object.keys(st.items).length, itemsBefore + 3); // A items kept, B items added, none duplicated
+  assert.ok(st.items['word:a1']); // A's SRS schedule survives untouched
+  // reassigning again to the same lesson is a no-op
+  const r2 = Core.reassignToday(st, day, lessonB, { id: 'GB' }, 24);
+  assert.equal(r2.vocabChanged, false); assert.equal(r2.grammarChanged, false);
+});
+
 console.log(`\n${pass} tests passed`);

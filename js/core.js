@@ -314,6 +314,36 @@ export function setVocabPosition(state, idx, total) {
   if (total > 0) state.curriculum.vocabDone = false;
   return i;
 }
+// Reassign TODAY's already-created day to the lessons the curriculum currently
+// points at (the position chosen in Settings). Safe by construction: SRS items
+// already created are never touched or duplicated (finalize only creates
+// missing items), review scheduling is untouched, and finalize after a
+// reassign advances from the chosen position exactly once. Checks belonging
+// to words that leave today's assignment are dropped from the day (they were
+// never finalised into SRS items).
+export function reassignToday(state, day, vocabLesson, grammarLesson, target) {
+  const out = { vocabChanged: false, grammarChanged: false, droppedChecks: 0 };
+  if (vocabLesson && day.vocabLessonId !== vocabLesson.id) {
+    const off = state.curriculum.vocabOffset || 0;
+    const keep = new Set(vocabLesson.wordIds.slice(off, off + target));
+    out.droppedChecks = Object.keys(day.wordChecks || {}).filter(id => !keep.has(id)).length;
+    day.wordChecks = Object.fromEntries(Object.entries(day.wordChecks || {}).filter(([id]) => keep.has(id)));
+    day.vocabLessonId = vocabLesson.id;
+    day.wordIds = [...keep];
+    day.loadTarget = day.wordIds.length;
+    day.vocabFinalized = false;
+    out.vocabChanged = true;
+  }
+  if (grammarLesson && day.grammarLessonId !== grammarLesson.id) {
+    day.grammarLessonId = grammarLesson.id;
+    day.grammarStatus = 'not';
+    day.grammarChecks = {};
+    day.grammarWeakKps = [];
+    day.grammarFinalized = false;
+    out.grammarChanged = true;
+  }
+  return out;
+}
 export function setGrammarPosition(state, idx, total) {
   const i = Math.max(0, Math.min(Number(idx) || 0, Math.max(0, (total || 0) - 1)));
   state.curriculum.grammarIndex = i;

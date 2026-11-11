@@ -1,6 +1,6 @@
-import * as Core from './core.js?v=5';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=5';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=5';
+import * as Core from './core.js?v=6';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=6';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=6';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -544,7 +544,7 @@ function viewSettings() {
   const shift = shiftOf(today);
   if (!schedShift) schedShift = shift;
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.1')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.2')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>
@@ -566,6 +566,7 @@ function viewSettings() {
     <label>Bài ngữ pháp tiếp theo<select id="grammarPos">${grammar.lessons.map((l, i) => `<option value="${i}" ${i === state.curriculum.grammarIndex ? 'selected' : ''}>${esc(l.level)} · Bài ${l.number} — ${esc(l.titleVi)}</option>`).join('')}</select></label>
     <p class="muted">Chỉ đổi khi bạn muốn bắt đầu từ vị trí khác. Ngày hôm nay đã tạo sẽ giữ nguyên bài đã giao.</p>
     <p id="posPreview" class="pos-preview"></p>
+    <button class="btn block" id="applyToday">Đổi cả bài của hôm nay sang vị trí này</button>
     <p id="posMsg" class="pos-msg" role="status"></p></section>
   <section class="card"><h2>Lịch học (sửa trực tiếp)</h2>
     <label>Đang sửa lịch của<select id="schedShift"><option value="day" ${schedShift === 'day' ? 'selected' : ''}>Ca ngày</option><option value="night" ${schedShift === 'night' ? 'selected' : ''}>Ca tối</option></select></label>
@@ -603,6 +604,23 @@ function viewSettings() {
     $('#posMsg').textContent = '✓ Đã cập nhật vị trí học. Áp dụng cho ngày học tiếp theo.';
   };
   $('#loadMode').onchange = async e => { settings.loadMode = e.target.value; await persist(); $('#loadMsg').textContent = '✓ Đã đổi mức tải — áp dụng từ ngày học tiếp theo.'; };
+  $('#applyToday').onclick = async () => {
+    const day = ensureDay();
+    const vl = state.curriculum.vocabDone ? null : vocab.lessons[state.curriculum.vocabIndex] || null;
+    const gl = state.curriculum.grammarDone ? null : grammar.lessons[state.curriculum.grammarIndex] || null;
+    if ((!vl || day.vocabLessonId === vl.id) && (!gl || day.grammarLessonId === gl.id)) { $('#posMsg').textContent = 'Bài hôm nay đã là vị trí này rồi.'; return; }
+    const parts = [];
+    if (vl && day.vocabLessonId !== vl.id) parts.push(`Từ vựng — HSK ${vl.level} · Bài ${vl.number}: ${vl.title}`);
+    if (gl && day.grammarLessonId !== gl.id) parts.push(`Ngữ pháp — ${gl.level} · Bài ${gl.number}: ${gl.titleVi}`);
+    const note = (day.vocabFinalized || day.grammarFinalized)
+      ? '\n\nBài hôm nay đã chốt trước đó vẫn giữ nguyên lịch ôn đã tạo; không có mục ôn nào bị tạo trùng.'
+      : '\n\nTừ đã học thuộc bài cũ hôm nay (nếu có) sẽ không được tính vào lịch ôn. Lịch ôn tập và dữ liệu cũ không thay đổi.';
+    if (!confirm(`Đổi cả bài hôm nay sang:\n${parts.join('\n')}${note}`)) return;
+    Core.reassignToday(state, day, vl, gl, loadMode().target);
+    log('position-apply-today', `${vl ? vl.id : '-'}|${gl ? gl.id : '-'}`);
+    await persist();
+    $('#posMsg').textContent = '✓ Đã đổi cả bài hôm nay. Mở tab “Hôm nay” để học bài mới.';
+  };
   $('#schedShift').onchange = e => { schedShift = e.target.value; render(); };
   const sched = settings.schedules[schedShift];
   document.querySelectorAll('[data-si]').forEach(inp => inp.onchange = async () => { const b = sched[Number(inp.dataset.si)]; if (inp.dataset.f === 'minutes') b.minutes = Math.max(1, Number(inp.value) || 1); else b[inp.dataset.f] = inp.value; await persist(); });
