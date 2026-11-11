@@ -1,13 +1,13 @@
-import * as Core from './core.js?v=7';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=7';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=7';
+import * as Core from './core.js?v=8';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=8';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=8';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const today = Core.todayKeyJST();
 
 let state, vocab, grammar, view = 'today';
-let settings = Object.assign({ shift: 'day', weekdayShifts: {}, shiftOverrides: {}, schedules: null, loadMode: 'standard' }, loadSettings());
+let settings = Object.assign({ shift: 'day', weekdayShifts: {}, shiftOverrides: {}, schedules: null, loadMode: 'standard', quizMethod: 'mixed', quizMode: 'test' }, loadSettings());
 const LOAD_MODES = { light: { label: 'Nhẹ', quiz: 10, review: 5, target: 8 }, standard: { label: 'Tiêu chuẩn', quiz: 20, review: 10, target: 24 }, focused: { label: 'Tập trung', quiz: 30, review: 20, target: 24 } };
 const loadMode = () => LOAD_MODES[settings.loadMode] || LOAD_MODES.standard;
 if (!settings.schedules) settings.schedules = JSON.parse(JSON.stringify(Core.DEFAULT_SCHEDULES));
@@ -166,17 +166,19 @@ function viewWords() {
     <option value="new">Từ mới (chưa có kết quả kiểm tra)</option>
     <option value="wrong">Từ đã trả lời sai</option>
     <option value="weak">Từ yếu / cần củng cố</option>
+    <option value="gap">Nhận diện được nhưng chưa tự nhớ</option>
     <option value="mastered">Từ đã thành thạo</option>
     <option value="learned">Tất cả từ đã học</option>
   </select></label>
-  <label>Dạng kiểm tra<select id="quizType">
-    <option value="mixed">Trộn cả 4 dạng</option>
-    <option value="h2m">Hán tự → chọn nghĩa</option>
-    <option value="m2h">Nghĩa → chọn Hán tự</option>
-    <option value="l2h">Nghe → chọn từ đúng</option>
-    <option value="h2p">Hán tự → chọn Pinyin</option>
-    <option value="recall">Tự nhớ trước (không trắc nghiệm)</option>
-  </select></label>
+  <p class="muted">Phương pháp kiểm tra</p>
+  <div class="row wrap" role="group" aria-label="Phương pháp kiểm tra">
+    ${[['mixed', 'Tổng hợp', 'trộn đủ kỹ năng'], ['recognize', 'Nhận biết', 'thấy chữ/nghĩa → chọn'], ['produce', 'Tự nhớ', 'thấy nghĩa → tự nhớ chữ'], ['listen', 'Luyện nghe', 'nghe → chọn từ']].map(([v, l, sub]) => `<button class="btn grow ${(settings.quizMethod || 'mixed') === v ? 'primary' : ''}" data-qmethod="${v}" aria-pressed="${(settings.quizMethod || 'mixed') === v}">${l}<br><span class="muted">${sub}</span></button>`).join('')}
+  </div>
+  <p class="muted">Chế độ</p>
+  <div class="row wrap" role="group" aria-label="Chế độ">
+    ${[['test', 'Kiểm tra', 'ghi vào thống kê và lịch ôn'], ['practice', 'Luyện tập', 'không tính điểm, không ảnh hưởng lịch ôn']].map(([v, l, sub]) => `<button class="btn grow ${(settings.quizMode || 'test') === v ? 'primary' : ''}" data-qmode="${v}" aria-pressed="${(settings.quizMode || 'test') === v}">${l}<br><span class="muted">${sub}</span></button>`).join('')}
+  </div>
+  <p class="muted">Chưa biết chọn gì? Cứ để Tổng hợp + Kiểm tra, hoặc làm theo “Việc tiếp theo” ở trang Hôm nay.</p>
   <div id="quiz"></div><button class="btn primary block" id="startQuiz">Bắt đầu kiểm tra</button></section>`;
   document.querySelectorAll('[data-speak]').forEach(b => b.onclick = () => speak(b.dataset.speak));
   document.querySelectorAll('[data-self]').forEach(b => b.onclick = async () => {
@@ -196,7 +198,9 @@ function viewWords() {
     b.textContent = on ? '⚑' : '⚐';
     await persist();
   });
-  $('#startQuiz').onclick = () => runQuiz($('#quizPool').value, $('#quizType').value);
+  document.querySelectorAll('[data-qmethod]').forEach(b => b.onclick = async () => { settings.quizMethod = b.dataset.qmethod; await persist(); render(); });
+  document.querySelectorAll('[data-qmode]').forEach(b => b.onclick = async () => { settings.quizMode = b.dataset.qmode; await persist(); render(); });
+  $('#startQuiz').onclick = () => runQuiz($('#quizPool').value, settings.quizMethod || 'mixed', settings.quizMode || 'test');
 }
 const QUIZ_TYPES = ['h2m', 'm2h', 'l2h', 'h2p', 'recall'];
 function quizPoolIds(pool, day) {
@@ -208,46 +212,81 @@ function quizPoolIds(pool, day) {
     case 'weak': return Object.values(items).filter(i => i.kind === 'word' && Core.classifyWord(i) === 'weak').map(i => i.id);
     case 'mastered': return Object.values(items).filter(i => i.kind === 'word' && (Core.classifyWord(i) === 'good' || Core.classifyWord(i) === 'mastered60')).map(i => i.id);
     case 'hard': return Object.keys(state.wordFlags || {}).filter(id => state.wordFlags[id].hard && vocab.words[id]);
+    case 'gap': return Core.recallGapIds(state, today);
     case 'learned': return Object.values(items).filter(i => i.kind === 'word').map(i => i.id);
     default: return [...day.wordIds];
   }
 }
-function buildQuestion(id, type) {
+function buildQuestion(id, type, conf) {
   const w = vocab.words[id]; if (!w) return null;
   if (type === 'h2p' && (w.readings || []).length > 1) type = 'h2m'; // multi-reading words: pinyin question would be unfair
   const field = type === 'h2m' ? 'meaning' : type === 'h2p' ? 'pinyin' : 'hanzi';
-  // Distractor quality: same lesson first, then same level, then the rest;
-  // for pinyin questions prefer the same initial sound (harder to eliminate).
+  // Distractor priority (V1.3): real confusion partners first, then same-syllable
+  // different-tone words (listening/pinyin), then same lesson, level, the rest.
   const lesson = vocab.lessons.find(l => l.wordIds.includes(id));
-  const sameLesson = lesson ? lesson.wordIds.filter(x => x !== id).map(x => vocab.words[x]) : [];
-  const sameLevel = Object.values(vocab.words).filter(x => x.id !== id && x.level === w.level && !(lesson && lesson.wordIds.includes(x.id)));
-  const rest = Object.values(vocab.words).filter(x => x.id !== id && x.level !== w.level);
-  const tiers = [sameLesson, sameLevel, rest].map(t => t.sort(() => Math.random() - 0.5));
-  if (type === 'h2p') {
-    const ini = x => (x.pinyin || '').replace(/[^a-z]/gi, '').charAt(0);
-    tiers.forEach(t => t.sort((x, y) => (ini(y) === ini(w) ? 1 : 0) - (ini(x) === ini(w) ? 1 : 0)));
-  }
-  const distract = [];
-  for (const tier of tiers) for (const x of tier) {
-    if (x[field] && x[field] !== w[field] && !distract.some(d => d[field] === x[field])) distract.push(x);
+  const all = Object.values(vocab.words).filter(x => x.id !== id);
+  const confIds = conf && conf[id] ? Object.keys(conf[id]) : [];
+  const tonePartners = all.filter(x => Core.syllableKey(x.pinyin) === Core.syllableKey(w.pinyin) && x.pinyin !== w.pinyin);
+  const groups = [
+    all.filter(x => confIds.includes(x.id)),
+    (type === 'l2h' || type === 'h2p') ? tonePartners : [],
+    lesson ? lesson.wordIds.filter(x => x !== id).map(x => vocab.words[x]).filter(Boolean) : [],
+    all.filter(x => x.level === w.level),
+    all,
+  ];
+  const seen = new Set([id]); const distract = [];
+  for (const g of groups) {
+    for (const x of [...g].sort(() => Math.random() - 0.5)) {
+      if (!x || seen.has(x.id) || !x[field] || x[field] === w[field] || distract.some(d => d[field] === x[field])) continue;
+      seen.add(x.id); distract.push(x);
+      if (distract.length === 3) break;
+    }
     if (distract.length === 3) break;
   }
   if (distract.length < 3) return null;
   const options = [w, ...distract].sort(() => Math.random() - 0.5);
   return { id, type, w, options, field };
 }
-function runQuiz(pool, typeSel) {
+function runQuiz(pool, method, mode) {
   const day = ensureDay();
+  if (pool === 'gap') method = 'produce'; // the gap pool measures production only — mixing recognition would break the measurement
   let ids = quizPoolIds(pool, day).filter(id => vocab.words[id]);
   const box = $('#quiz');
   if (!ids.length) { box.innerHTML = '<p>Nhóm này chưa có từ nào. Hãy chọn nhóm khác.</p>'; return; }
   ids = ids.sort(() => Math.random() - 0.5).slice(0, loadMode().quiz);
-  const retry = []; // wrong words come back ONCE at the end, as recall (error loop; not scored)
+  // Build the type plan: quota for mixed, single method otherwise.
+  let plan;
+  if (method === 'produce') plan = ids.map(() => 'produce');
+  else if (method === 'listen') plan = ids.map(() => 'l2h');
+  else if (method === 'recognize') plan = ids.map((_, i) => i % 2 ? 'm2h' : 'h2m');
+  else {
+    const q = Core.sessionTypePlan(ids.length);
+    plan = [...Array(q.produce).fill('produce'), ...Array(q.listen).fill('l2h'), ...Array(q.pinyin).fill('h2p'),
+      ...Array(q.recog).fill(null).map((_, i) => i % 2 ? 'm2h' : 'h2m')].sort(() => Math.random() - 0.5);
+  }
+  const conf = Core.confusionMap(state);
+  const tally = { recog: { c: 0, n: 0 }, listen: { c: 0, n: 0 }, pinyin: { c: 0, n: 0 }, produce: { n: 0, l2: 0, l1: 0, l0: 0 } };
+  const wrongWords = new Set();
+  const retry = []; let retriesDone = 0;
   let idx = 0;
-  const finish = () => { box.innerHTML = `<p>Đã xong lượt kiểm tra (${ids.length} từ). ✓ Kết quả đã được ghi vào thống kê và lịch ôn. Chuyển trang bằng thanh điều hướng bên dưới để xem tiến độ cập nhật.</p>`; };
+  const groupOf = t => t === 'l2h' ? 'listen' : t === 'h2p' ? 'pinyin' : 'recog';
+  const finish = () => {
+    const lines = [];
+    if (tally.recog.n) lines.push(`<tr><td>Nhận biết (lần thử đầu)</td><td class="num"><strong>${tally.recog.c}/${tally.recog.n}</strong></td></tr>`);
+    if (tally.listen.n) lines.push(`<tr><td>Nghe nhận diện (lần thử đầu)</td><td class="num"><strong>${tally.listen.c}/${tally.listen.n}</strong></td></tr>`);
+    if (tally.pinyin.n) lines.push(`<tr><td>Pinyin và thanh điệu (lần thử đầu)</td><td class="num"><strong>${tally.pinyin.c}/${tally.pinyin.n}</strong></td></tr>`);
+    if (tally.produce.n) lines.push(`<tr><td>Tự nhớ (tự đánh giá)</td><td class="num"><strong>rõ ${tally.produce.l2} · mơ hồ ${tally.produce.l1} · chưa nhớ ${tally.produce.l0}</strong></td></tr>`);
+    box.innerHTML = `<h3>Kết quả phiên ${mode === 'practice' ? 'luyện tập' : 'kiểm tra'}</h3>
+    ${mode === 'practice' ? '<p class="muted">Phiên luyện tập — kết quả không tính vào thống kê ghi nhớ và không ảnh hưởng lịch ôn.</p>' : ''}
+    <table class="stat">${lines.join('') || '<tr><td>Chưa có câu nào được tính.</td></tr>'}</table>
+    ${wrongWords.size ? `<p><strong>Từ cần củng cố:</strong> ${wrongWords.size} từ${retriesDone ? ` · Đã gặp lại lỗi sai cuối phiên: ${retriesDone} lượt (luyện tập, không tính điểm)` : ''}</p>` : '<p>Mọi từ trong phiên đều đạt ở lần thử đầu. ✓</p>'}
+    <button class="btn primary block" id="qAgain">Luyện lại nhóm từ yếu</button>
+    <p class="muted">Không có điểm tổng — mỗi kỹ năng được theo dõi riêng để bạn thấy rõ mình mạnh/yếu ở đâu.</p>`;
+    const qa = $('#qAgain'); if (qa) qa.onclick = () => runQuiz('weak', 'mixed', mode);
+  };
   const askRecall = (id, isRetry) => {
     const w = vocab.words[id];
-    box.innerHTML = `<p class="muted">${isRetry ? 'Ôn lại lỗi sai · ' : ''}Tự nhớ trước · Câu ${idx + 1}/${ids.length + retry.length}</p>
+    box.innerHTML = `<p class="muted">${isRetry ? 'Ôn lại lỗi sai · ' : ''}Tự nhớ trước · Câu ${idx + 1}/${ids.length}</p>
     <p class="center"><span class="zh big">${esc(w.hanzi)}</span> <button class="icon-btn" data-qs aria-label="Nghe phát âm">🔊</button></p>
     <p class="muted center">Hãy tự nhớ nghĩa (và Pinyin) trong đầu trước, rồi mới hiện đáp án.</p>
     <button class="btn primary block" id="revealBtn">Hiện đáp án</button>
@@ -259,33 +298,48 @@ function runQuiz(pool, typeSel) {
       ${w.example ? `<p class="muted center"><span class="zh">${esc(w.example.zh)}</span> — ${esc(w.example.vi)}</p>` : ''}
       <p class="muted center">Bạn nhớ đến mức nào?</p>
       <div class="row"><button class="btn grow" data-rl="0">Không nhớ</button><button class="btn grow" data-rl="1">Mơ hồ</button><button class="btn primary grow" data-rl="2">Nhớ rõ</button></div>`;
+      box.querySelectorAll('[data-rl]').forEach(b => b.onclick = async () => { idx++; next(); });
+    };
+  };
+  const askProduce = (id) => {
+    const w = vocab.words[id];
+    box.innerHTML = `<p class="muted">Tự nhớ · Câu ${idx + 1}/${ids.length}</p>
+    <p class="center"><strong>${esc(w.meaning)}</strong></p>
+    <p class="muted center">Hãy tự nhớ chữ Hán và Pinyin của từ này trong đầu (hoặc viết ra giấy) trước khi hiện đáp án. Chưa hiện chữ Hán và chưa có loa — để bạn thật sự tự nhớ.</p>
+    <button class="btn primary block" id="revealBtn">Hiện đáp án</button>
+    <div id="recallAns"></div>`;
+    $('#revealBtn').onclick = () => {
+      $('#recallAns').innerHTML = `<p class="center"><span class="zh big">${esc(w.hanzi)}</span> <button class="icon-btn" data-qs aria-label="Nghe phát âm">🔊</button><br><span class="pinyin">${esc(w.pinyin)}</span></p>
+      ${w.example ? `<p class="muted center"><span class="zh">${esc(w.example.zh)}</span> — ${esc(w.example.vi)}</p>` : ''}
+      <p class="muted center">Bạn tự nhớ đến mức nào?</p>
+      <div class="row"><button class="btn grow" data-rl="0">Không nhớ</button><button class="btn grow" data-rl="1">Mơ hồ</button><button class="btn primary grow" data-rl="2">Nhớ rõ</button></div>`;
+      box.querySelectorAll('[data-qs]').forEach(b => b.onclick = () => speak(w.hanzi));
+      tagZh(box);
       box.querySelectorAll('[data-rl]').forEach(b => b.onclick = async () => {
+        box.querySelectorAll('[data-rl]').forEach(x => { x.disabled = true; });
         const level = Number(b.dataset.rl);
-        if (isRetry) { /* retry attempts are practice only */ }
-        else {
-          Core.recordRecall(state, day, id, level, today);
-          if (pool === 'today') await finalizeVocabIfDone(day);
-          if (level === 0 && !retry.includes(id) && !ids.slice(idx + 1).includes(id)) retry.push(id);
-        }
+        tally.produce.n += 1; tally.produce['l' + level] += 1;
+        if (level === 0) { wrongWords.add(id); if (!retry.includes(id)) retry.push(id); }
+        Core.recordRecall(state, day, id, level, today, { type: 'produce', mode });
+        if (pool === 'today' && mode === 'test') await finalizeVocabIfDone(day);
         await persist(); idx++; next();
       });
     };
   };
   const next = () => {
     if (idx >= ids.length) {
-      if (retry.length) { const id = retry.shift(); idx = ids.length - 1; return askRecall(id, true); }
+      if (retry.length && retriesDone < 5) { const id = retry.shift(); retriesDone += 1; idx = ids.length - 1; return askRecall(id, true); }
       return finish();
     }
-    let type = typeSel === 'mixed' ? QUIZ_TYPES[Math.floor(Math.random() * QUIZ_TYPES.length)] : typeSel;
-    if (type === 'recall') return askRecall(ids[idx], false);
-    const q = buildQuestion(ids[idx], type);
+    const type = plan[idx];
+    if (type === 'produce') return askProduce(ids[idx]);
+    const q = buildQuestion(ids[idx], type, conf);
     if (!q) { idx++; return next(); }
-    if (q.type === 'recall') return askRecall(q.id, false);
     const prompt = q.type === 'h2m' || q.type === 'h2p' ? `<span class="zh big">${esc(q.w.hanzi)}</span> <button class="icon-btn" data-qs aria-label="Nghe phát âm">🔊</button>`
       : q.type === 'm2h' ? `<strong>${esc(q.w.meaning)}</strong>`
-      : `<button class="btn primary" data-qs>🔊 Nghe phát âm</button>`;
+      : `<button class="btn primary" data-qs>🔊 Nghe phát âm</button> <span class="muted">(nghe lại được)</span>`;
     const label = { h2m: 'Chọn nghĩa đúng:', h2p: 'Chọn Pinyin đúng:', m2h: 'Chọn từ đúng:', l2h: 'Nghe rồi chọn từ đúng:' }[q.type];
-    box.innerHTML = `<div aria-live="polite"><p class="muted">Câu ${idx + 1}/${ids.length}</p><p class="center">${prompt}</p><p class="muted center">${label}</p>
+    box.innerHTML = `<div aria-live="polite"><p class="muted">Câu ${idx + 1}/${ids.length}${mode === 'practice' ? ' · Luyện tập' : ''}</p><p class="center">${prompt}</p><p class="muted center">${label}</p>
     ${q.options.map(o => `<button class="btn block opt ${q.field === 'hanzi' ? 'zh' : ''}" data-opt="${o.id}">${esc(o[q.field])}</button>`).join('')}<div id="qfb"></div></div>`;
     box.querySelectorAll('[data-qs]').forEach(b => b.onclick = () => speak(q.w.hanzi));
     tagZh(box);
@@ -294,12 +348,13 @@ function runQuiz(pool, typeSel) {
       const correct = b.dataset.opt === q.id;
       b.classList.add(correct ? 'right' : 'wrong');
       box.querySelectorAll('[data-opt]').forEach(x => { if (x.dataset.opt === q.id) x.classList.add('right'); x.disabled = true; });
-      Core.recordQuiz(state, day, q.id, correct, today, { type: q.type, chosenId: b.dataset.opt });
-      if (pool === 'today') await finalizeVocabIfDone(day);
+      const g = tally[groupOf(q.type)]; g.n += 1; if (correct) g.c += 1;
+      if (!correct) { wrongWords.add(q.id); if (!retry.includes(q.id)) retry.push(q.id); }
+      Core.recordQuiz(state, day, q.id, correct, today, { type: q.type, chosenId: b.dataset.opt, mode });
+      if (pool === 'today' && mode === 'test') await finalizeVocabIfDone(day);
       await persist();
       if (correct) { $('#qfb').innerHTML = '<p class="center"><strong>✓ Đúng</strong></p>'; idx++; setTimeout(next, 700); }
       else {
-        if (!retry.includes(q.id)) retry.push(q.id);
         $('#qfb').innerHTML = `<div class="correction"><p><strong>✗ Chưa đúng.</strong> Đáp án đúng: <span class="zh">${esc(q.w.hanzi)}</span> · ${esc(q.w.pinyin)} · ${esc(q.w.meaning)}</p>
         ${q.w.example ? `<p><span class="zh">${esc(q.w.example.zh)}</span> — ${esc(q.w.example.vi)}</p>` : ''}
         <button class="btn primary block" id="okBtn">Đã hiểu, tiếp tục</button></div>`;
@@ -308,6 +363,149 @@ function runQuiz(pool, typeSel) {
     });
   };
   next();
+}
+
+/* ---- V1.3 grammar practice session: recall → recognize → apply → produce ---- */
+function recordGrammarCheck(day, kpId, correct) {
+  day.grammarChecks = day.grammarChecks || {};
+  const gc = day.grammarChecks[kpId] || { attempts: 0, correct: 0, firstTry: false };
+  gc.attempts += 1;
+  if (correct && gc.correct === 0) { gc.correct = 1; if (gc.attempts === 1) gc.firstTry = true; }
+  day.grammarChecks[kpId] = gc;
+  if (!correct) day.grammarWeakKps = [...new Set([...(day.grammarWeakKps || []), kpId])];
+  return gc;
+}
+let gsession = null;
+function grammarStagePlan(gl, fromStage) {
+  const mode = settings.loadMode || 'standard';
+  const stages = [];
+  const recallCap = mode === 'light' ? 3 : mode === 'focused' ? 99 : 5;
+  if (gl.points.length) stages.push({ key: 'recall', label: 'Nhớ lại cấu trúc', items: gl.points.slice(0, recallCap) });
+  const qc = gl.points.filter(p => p.quickCheck);
+  if (qc.length) stages.push({ key: 'recognize', label: 'Nhận biết', items: qc });
+  if (mode !== 'light' && (gl.exercises || []).length) stages.push({ key: 'apply', label: 'Vận dụng', items: gl.exercises.slice(0, mode === 'focused' ? 8 : 5) });
+  if (mode === 'focused' && (gl.applyTasks || []).length) stages.push({ key: 'produce', label: 'Tự đặt câu', items: gl.applyTasks.slice(0, 1) });
+  return fromStage === 'full' ? stages : stages.filter(st => st.key === fromStage);
+}
+function startGrammarSession(gl, fromStage) {
+  const stages = grammarStagePlan(gl, fromStage);
+  const card = $('#gsessionCard'); if (!card) return;
+  if (!stages.length) { card.hidden = false; $('#gsession').innerHTML = '<p>Phần này chưa có dữ liệu đã kiểm chứng cho bài hiện tại.</p>'; return; }
+  gsession = { gl, stages, si: 0, ii: 0, tally: { recall: { n: 0, l2: 0, l1: 0, l0: 0 }, recognize: { c: 0, n: 0 }, apply: { c: 0, n: 0 }, produce: { n: 0 } } };
+  card.hidden = false; card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  gNext();
+}
+function gHead() {
+  const st = gsession.stages[gsession.si];
+  const dots = gsession.stages.map((_, i) => i < gsession.si ? '●' : i === gsession.si ? '◉' : '○').join(' ');
+  return `<p class="muted" aria-label="Giai đoạn ${gsession.si + 1} trên ${gsession.stages.length}: ${st.label}">${dots} · Giai đoạn ${gsession.si + 1}/${gsession.stages.length}: <strong>${st.label}</strong> · mục ${gsession.ii + 1}/${st.items.length}</p>`;
+}
+function gAdvance() {
+  gsession.ii += 1;
+  const st = gsession.stages[gsession.si];
+  if (gsession.ii >= st.items.length) { gsession.si += 1; gsession.ii = 0; }
+  gNext();
+}
+function gNext() {
+  const box = $('#gsession'); if (!box || !gsession) return;
+  const day = ensureDay();
+  if (gsession.si >= gsession.stages.length) {
+    const t = gsession.tally; const gl = gsession.gl;
+    const weakTitles = (day.grammarWeakKps || []).map(id => { const p = gl.points.find(x => x.id === id); return p ? p.title : null; }).filter(Boolean);
+    box.innerHTML = `<h3>Kết quả phiên ngữ pháp</h3><table class="stat">
+    ${t.recall.n ? `<tr><td>Nhớ lại cấu trúc (tự đánh giá)</td><td class="num"><strong>rõ ${t.recall.l2} · mơ hồ ${t.recall.l1} · chưa nhớ ${t.recall.l0}</strong></td></tr>` : ''}
+    ${t.recognize.n ? `<tr><td>Nhận biết (kiểm tra khách quan)</td><td class="num"><strong>${t.recognize.c}/${t.recognize.n}</strong></td></tr>` : ''}
+    ${t.apply.n ? `<tr><td>Vận dụng (kiểm tra khách quan)</td><td class="num"><strong>${t.apply.c}/${t.apply.n}</strong></td></tr>` : ''}
+    ${t.produce.n ? `<tr><td>Tự đặt câu (tự đánh giá, không tính điểm)</td><td class="num"><strong>${t.produce.n} nhiệm vụ đã thử</strong></td></tr>` : ''}
+    </table>
+    ${weakTitles.length ? `<p><strong>Nên luyện thêm:</strong> ${weakTitles.map(esc).join(' · ')}</p>` : '<p>Chưa có điểm nào cần luyện thêm sau phiên này. ✓</p>'}
+    <p class="muted">Không có điểm tổng — mỗi giai đoạn đo một năng lực khác nhau.</p>`;
+    gsession = null; return;
+  }
+  const st = gsession.stages[gsession.si]; const it = st.items[gsession.ii]; const gl = gsession.gl;
+  if (st.key === 'recall') {
+    box.innerHTML = `${gHead()}<h3>${esc(it.title)}</h3>
+    ${it.pattern ? `<p class="pattern zh">${esc(it.pattern)}</p>` : ''}
+    <p class="muted">Tự nhớ: cấu trúc này nghĩa là gì, dùng khi nào? Nhớ trong đầu rồi mới hiện cách dùng.</p>
+    <button class="btn primary block" id="gReveal">Hiện cách dùng</button><div id="gAns"></div>`;
+    $('#gReveal').onclick = () => {
+      $('#gAns').innerHTML = `<p>${esc(it.explanationVi)}</p>${it.useWhenVi ? `<p><strong>Khi nào dùng:</strong> ${esc(it.useWhenVi)}</p>` : ''}
+      ${(it.examples && it.examples.length ? it.examples : []).map(e => `<p><span class="zh">${esc(e.zh)}</span> · ${esc(e.pinyin)}</p>`).join('')}
+      <p class="muted">Bạn tự nhớ đến mức nào?</p>
+      <div class="row"><button class="btn grow" data-grl="0">Chưa nhớ</button><button class="btn grow" data-grl="1">Mơ hồ</button><button class="btn primary grow" data-grl="2">Nhớ rõ</button></div>`;
+      tagZh(box);
+      box.querySelectorAll('[data-grl]').forEach(b => b.onclick = async () => {
+        box.querySelectorAll('[data-grl]').forEach(x => { x.disabled = true; });
+        const level = Number(b.dataset.grl);
+        day.grammarRecall = day.grammarRecall || {}; day.grammarRecall[it.id] = { level, at: today };
+        gsession.tally.recall.n += 1; gsession.tally.recall['l' + level] += 1;
+        log('grammar-recall', `${gl.id}:${it.id}:${level}`);
+        await persist(); gAdvance();
+      });
+    };
+  } else if (st.key === 'recognize') {
+    const qc = it.quickCheck;
+    box.innerHTML = `${gHead()}<p><strong>${esc(it.title)}:</strong> ${esc(qc.questionVi)}</p>
+    ${qc.stemZh ? `<p class="zh center big">${esc(qc.stemZh)}</p>` : ''}
+    ${qc.options.map((o, i) => `<button class="btn block opt zh" data-gopt="${i}">${esc(o.zh)}${o.vi ? ` <span class="muted">(${esc(o.vi)})</span>` : ''}</button>`).join('')}<div id="gFb"></div>`;
+    tagZh(box);
+    box.querySelectorAll('[data-gopt]').forEach(b => b.onclick = async () => {
+      const correct = Number(b.dataset.gopt) + 1 === qc.answer;
+      gsession.tally.recognize.n += 1; if (correct) gsession.tally.recognize.c += 1;
+      recordGrammarCheck(day, it.id, correct);
+      box.querySelectorAll('[data-gopt]').forEach(x => { x.disabled = true; if (Number(x.dataset.gopt) + 1 === qc.answer) x.classList.add('right'); });
+      if (!correct) b.classList.add('wrong');
+      $('#gFb').innerHTML = `<p><strong>${correct ? '✓ Đúng' : '✗ Chưa đúng'}</strong> · ${esc(qc.explanationVi)}</p><button class="btn primary block" id="gOk">Tiếp tục</button>`;
+      await persist();
+      $('#gOk').onclick = () => gAdvance();
+    });
+  } else if (st.key === 'apply') {
+    box.innerHTML = `${gHead()}<p class="muted">${esc(it.promptVi)}</p>
+    ${it.promptZh ? `<p class="zh center big">${esc(it.promptZh)}</p>` : ''}
+    ${it.options.map((o, i) => `<button class="btn block opt" data-gopt="${i}"><span class="zh">${esc(o.zh)}</span>${o.vi ? ` <span class="muted">(${esc(o.vi)})</span>` : ''}</button>`).join('')}<div id="gFb"></div>`;
+    tagZh(box);
+    box.querySelectorAll('[data-gopt]').forEach(b => b.onclick = async () => {
+      const correct = Number(b.dataset.gopt) + 1 === it.answer;
+      gsession.tally.apply.n += 1; if (correct) gsession.tally.apply.c += 1;
+      day.grammarExercises = day.grammarExercises || {};
+      const prev = day.grammarExercises[it.id] || { attempts: 0, correct: false };
+      day.grammarExercises[it.id] = { attempts: prev.attempts + 1, correct: prev.correct || correct };
+      box.querySelectorAll('[data-gopt]').forEach(x => { x.disabled = true; if (Number(x.dataset.gopt) + 1 === it.answer) x.classList.add('right'); });
+      if (!correct) b.classList.add('wrong');
+      $('#gFb').innerHTML = `<p><strong>${correct ? '✓ Đúng' : '✗ Chưa đúng'}</strong>${it.explanationVi ? ` · ${esc(it.explanationVi)}` : ''}</p><button class="btn primary block" id="gOk">Tiếp tục</button>`;
+      log(correct ? 'grammar-exercise-right' : 'grammar-exercise-wrong', `${gl.id}:${it.id}`);
+      await persist();
+      $('#gOk').onclick = () => gAdvance();
+    });
+  } else if (st.key === 'produce') {
+    box.innerHTML = `${gHead()}<h3>${esc(it.titleVi || 'Tự đặt câu')}</h3>
+    <p><strong>Tình huống:</strong> ${esc(it.situationVi || 'Hãy tự đặt một câu theo bài học này.')}</p>
+    <p class="muted">Tự đặt câu tiếng Trung của bạn trước (gõ vào ô dưới hoặc viết ra giấy rồi gõ lại). Nút xem câu mẫu chỉ mở khi bạn đã viết ít nhất một chữ Hán — câu mẫu để đối chiếu, không phải để chép trước.</p>
+    <textarea id="prodInput" class="zh" rows="3" style="width:100%" placeholder="Câu tiếng Trung của bạn…" aria-label="Câu tiếng Trung của bạn"></textarea>
+    <button class="btn primary block" id="gReveal" disabled>Xem câu mẫu đã kiểm chứng</button><div id="gAns"></div>`;
+    const ta = $('#prodInput');
+    ta.oninput = () => { $('#gReveal').disabled = !/[一-鿿]/.test(ta.value); };
+    $('#gReveal').onclick = () => {
+      const checks = ['Đúng cấu trúc đích', 'Đúng trật tự từ', 'Đúng ý tình huống', 'Còn thiếu thành phần', 'Sai cấu trúc'];
+      const chosen = new Set();
+      $('#gAns').innerHTML = `<p><strong>Câu mẫu:</strong> <span class="zh">${esc(it.sampleZh)}</span> · ${esc(it.samplePinyin)}<br><span class="muted">${esc(it.sampleVi)}</span></p>
+      <p class="muted">Câu mẫu chỉ là MỘT cách nói đúng. Câu của bạn khác câu mẫu vẫn có thể đúng — hãy tự so theo các mục dưới đây, đừng so từng chữ.</p>
+      ${it.swapVi ? `<p><strong>Luyện thêm:</strong> ${esc(it.swapVi)}</p>` : ''}
+      <div class="row wrap">${checks.map((c, i) => `<button class="btn" data-pchk="${i}" aria-pressed="false">${c}</button>`).join('')}</div>
+      <p class="muted">Tự đánh giá tổng thể (chỉ bạn tự chấm — không tính vào điểm kiểm tra):</p>
+      <div class="row">${[['2', 'Đạt'], ['1', 'Đạt một phần'], ['0', 'Chưa đạt']].map(([v, l]) => `<button class="btn grow" data-prate="${v}">${l}</button>`).join('')}</div>`;
+      tagZh(box);
+      box.querySelectorAll('[data-pchk]').forEach(b => b.onclick = () => { const i = Number(b.dataset.pchk); if (chosen.has(i)) { chosen.delete(i); b.classList.remove('primary'); b.setAttribute('aria-pressed', 'false'); } else { chosen.add(i); b.classList.add('primary'); b.setAttribute('aria-pressed', 'true'); } });
+      box.querySelectorAll('[data-prate]').forEach(b => b.onclick = async () => {
+        box.querySelectorAll('[data-prate]').forEach(x => { x.disabled = true; });
+        day.grammarProduction = day.grammarProduction || [];
+        day.grammarProduction.push({ taskId: it.id, lessonId: gl.id, rating: Number(b.dataset.prate), checks: [...chosen].map(i => checks[i]), text: ta.value.trim().slice(0, 200), at: today, selfAssessed: true });
+        gsession.tally.produce.n += 1;
+        log('grammar-production', `${gl.id}:${it.id}:${b.dataset.prate}`);
+        await persist(); gAdvance();
+      });
+    };
+  }
 }
 
 function viewGrammar() {
@@ -321,6 +519,17 @@ function viewGrammar() {
     ${gl.outcomes.length ? `<ul>${gl.outcomes.map(o => `<li>${esc(o)}</li>`).join('')}</ul>` : ''}
     ${gl.minutes ? `<p class="muted">Thời lượng ước tính: ${gl.minutes} phút</p>` : ''}
     <a class="btn primary block" target="_blank" rel="noopener" href="${esc(GRAMMAR_LESSON_URL(gl.id))}">Mở bài gốc trên HSK3.0 ↗</a></section>
+  <section class="card"><h2>Luyện ngữ pháp bài này</h2>
+    <p class="muted">Một phiên luyện theo giai đoạn: tự nhớ lại cấu trúc trước, rồi mới kiểm tra. Phần “Tự đặt câu” chỉ là tự đánh giá — không tính vào điểm kiểm tra.</p>
+    <div class="row wrap">
+      ${[['full', '▶ Phiên đầy đủ'], ['recall', 'Nhớ lại cấu trúc'], ['recognize', 'Nhận biết'], ['apply', 'Vận dụng'], ['produce', 'Tự đặt câu']].map(([v, l]) => {
+        const noData = (v === 'apply' && !(gl.exercises || []).length) || (v === 'produce' && !(gl.applyTasks || []).length) || (v === 'recognize' && !gl.points.some(p => p.quickCheck));
+        return `<button class="btn grow" data-gstage="${v}" ${noData ? 'disabled title="Bài này chưa có dữ liệu đã kiểm chứng cho phần này"' : ''}>${l}${noData ? ' (chưa có dữ liệu)' : ''}</button>`;
+      }).join('')}
+    </div>
+    <p class="muted">Số giai đoạn theo mức tải hiện tại (${loadMode().label}): Nhẹ = Nhớ lại + Nhận biết · Tiêu chuẩn = thêm Vận dụng · Tập trung = thêm Tự đặt câu.</p>
+  </section>
+  <section class="card" id="gsessionCard" hidden><div id="gsession" aria-live="polite"></div></section>
   <section class="card"><h2>Chủ điểm ngữ pháp</h2>
     ${gl.points.map(pt => { const gc = (day.grammarChecks || {})[pt.id]; return `<div class="point"><h3>${esc(pt.title)}</h3><p>${esc(pt.explanationVi)}</p>
       ${pt.pattern ? `<p class="pattern zh">${esc(pt.pattern)}</p>` : ''}
@@ -340,12 +549,7 @@ function viewGrammar() {
   document.querySelectorAll('[data-qopt]').forEach(b => b.onclick = async () => {
     const [kpId, oi] = b.dataset.qopt.split(':'); const pt = gl.points.find(p => p.id === kpId); if (!pt || !pt.quickCheck) return;
     const correct = Number(oi) + 1 === pt.quickCheck.answer;
-    day.grammarChecks = day.grammarChecks || {};
-    const gc = day.grammarChecks[kpId] || { attempts: 0, correct: 0, firstTry: false };
-    gc.attempts += 1;
-    if (correct && gc.correct === 0) { gc.correct = 1; if (gc.attempts === 1) gc.firstTry = true; }
-    day.grammarChecks[kpId] = gc;
-    if (!correct) { day.grammarWeakKps = [...new Set([...(day.grammarWeakKps || []), kpId])]; }
+    const gc = recordGrammarCheck(day, kpId, correct);
     const wrap = b.closest('.qcheck');
     wrap.querySelectorAll('[data-qopt]').forEach(x => { x.disabled = true; if (x.dataset.qopt === `${kpId}:${pt.quickCheck.answer - 1}`) x.classList.add('right'); });
     if (!correct) b.classList.add('wrong');
@@ -369,6 +573,7 @@ function viewGrammar() {
     if (day.grammarStatus === 'again') { const it = state.items[`grammar:${gl.id}`]; if (it) { it.weak = true; it.extraDue = Core.addDays(today, 1); } }
     await finalizeGrammarIfDone(day); await persist(); render();
   });
+  document.querySelectorAll('[data-gstage]').forEach(b => b.onclick = () => startGrammarSession(gl, b.dataset.gstage));
 }
 
 /* review session — entries carry an explicit type: 'regular' | 'extra' */
@@ -519,7 +724,14 @@ function viewStats() {
     <tr><td>Tuần này: lượt ôn tập</td><td class="num"><strong>${week.reviews}</strong></td></tr>
     <tr><td>Số từ cần ôn (đến hạn hôm nay)</td><td class="num"><strong>${Core.dueEntries(state, today).filter(e => e.item.kind === 'word').length}</strong></td></tr></table>
     <p class="muted">Thời gian học thực tế không được đo — Dashboard không ghi nhận thời gian bạn mở trang, nên không hiển thị con số đoán.</p></section>
-  ${(() => { const bt = Core.accuracyByType(state); const rows = Object.entries(bt).filter(([, v]) => v.n >= 5); const LBL = { h2m: 'Hán tự → nghĩa', m2h: 'Nghĩa → Hán tự', l2h: 'Nghe → chọn từ', h2p: 'Hán tự → Pinyin', recall: 'Tự nhớ trước' };
+  ${(() => { const bt = Core.accuracyByType(state); const grp = (keys) => { let c = 0, n = 0; for (const k of keys) if (bt[k]) { c += bt[k].c; n += bt[k].n; } return n >= 5 ? Math.round(100 * c / n) + '% (' + c + '/' + n + ')' : (n ? 'chưa đủ dữ liệu (' + n + ' lần)' : '—'); };
+    return `<section class="card"><h2>Kỹ năng từ vựng (tách riêng, không gộp điểm)</h2><table class="stat">
+    <tr><td>Nhận biết (thấy chữ/nghĩa → chọn đúng)</td><td class="num"><strong>${grp(['h2m', 'm2h'])}</strong></td></tr>
+    <tr><td>Nghe nhận diện</td><td class="num"><strong>${grp(['l2h'])}</strong></td></tr>
+    <tr><td>Pinyin và thanh điệu</td><td class="num"><strong>${grp(['h2p'])}</strong></td></tr>
+    <tr><td>Tự nhớ (tự đánh giá)</td><td class="num"><strong>${grp(['recall', 'produce'])}</strong></td></tr></table>
+    <p class="muted">Nhận biết tốt nhưng tự nhớ thấp nghĩa là bạn nhận ra từ khi thấy đáp án, nhưng chưa tự nhớ ra được — hãy dùng nhóm “Nhận diện được nhưng chưa tự nhớ” ở trang Học từ.</p></section>`; })()}
+  ${(() => { const bt = Core.accuracyByType(state); const rows = Object.entries(bt).filter(([, v]) => v.n >= 5); const LBL = { h2m: 'Hán tự → nghĩa', m2h: 'Nghĩa → Hán tự', l2h: 'Nghe → chọn từ', h2p: 'Hán tự → Pinyin', recall: 'Tự nhớ (thấy chữ)', produce: 'Tự nhớ (thấy nghĩa → nhớ chữ)' };
     return rows.length ? `<section class="card"><h2>Độ chính xác theo dạng kiểm tra</h2><table class="stat">${rows.map(([t, v]) => `<tr><td>${LBL[t] || t}</td><td class="num"><strong>${Math.round(100 * v.c / v.n)}% (${v.c}/${v.n})</strong></td></tr>`).join('')}</table><p class="muted">Chỉ tính lần thử đầu tiên trong ngày của mỗi từ; ôn bổ sung không tính vào đây.</p></section>` : ''; })()}
   ${(() => { const ow = Core.oftenWrong(state); return ow.length ? `<section class="card"><h2>Nội dung hay sai nhất</h2>${ow.map(({ item, misses }) => { const lbl = item.kind === 'word' ? (() => { const w = vocab.words[item.id]; return w ? `${w.hanzi} · ${w.meaning}` : item.id; })() : (() => { const g = grammar.lessons.find(l => l.id === item.id); return g ? `Ngữ pháp: ${g.titleVi}` : item.id; })(); return `<p class="row between"><span>${esc(lbl)}</span><span class="chip overdue">sai ${misses} lần</span></p>`; }).join('')}<p class="muted">Dùng nhóm “Từ yếu” hoặc “Từ đã trả lời sai” ở trang Học từ để luyện lại.</p></section>` : ''; })()}
   <section class="card"><h2>Ngữ pháp</h2><table class="stat">
@@ -527,14 +739,16 @@ function viewStats() {
     <tr><td>Đã hoàn thành (qua 60 ngày)</td><td class="num"><strong>${gs.done}</strong></td></tr>
     <tr><td>Đang học / đang ôn</td><td class="num"><strong>${gs.learning}</strong></td></tr>
     <tr><td>Bài còn yếu</td><td class="num"><strong>${gs.weak}</strong></td></tr>
-    <tr><td>Điểm ngữ pháp còn yếu (theo điểm kiến thức)</td><td class="num"><strong>${gs.kpWeak}</strong></td></tr></table>
+    <tr><td>Điểm ngữ pháp còn yếu (theo điểm kiến thức)</td><td class="num"><strong>${gs.kpWeak}</strong></td></tr>
+    <tr><td>Tự đặt câu đã thử (tự đánh giá, không tính là điểm kiểm tra)</td><td class="num"><strong>${Object.values(state.days).reduce((n, d) => n + ((d.grammarProduction || []).length), 0)}</strong></td></tr></table>
+    ${(() => { const pts = []; for (const it of Object.values(state.items)) { if (it.kind !== 'grammar') continue; const g = grammar.lessons.find(l => l.id === it.id); for (const kp of it.kpWeak || []) { const p = g && g.points.find(x => x.id === kp); if (p) pts.push(`${p.title} (${g.titleVi})`); } } return pts.length ? `<p><strong>Điểm cần củng cố:</strong> ${[...new Set(pts)].map(esc).join(' · ')}</p><p class="muted">Các điểm này sẽ được hỏi lại trong phiên ôn ngữ pháp.</p>` : ''; })()}
     <div id="glist">${Object.values(state.items).filter(i => i.kind === 'grammar').map(it => { const g = grammar.lessons.find(l => l.id === it.id); return g ? `<p class="row between"><span>${esc(g.titleVi)}</span><a class="btn small" target="_blank" rel="noopener" href="${esc(GRAMMAR_LESSON_URL(g.id))}">Xem lại ↗</a></p>` : ''; }).join('') || '<p class="muted">Chưa có bài ngữ pháp nào.</p>'}</div></section>
   <section class="card"><h2>Tiến độ trên hai app gốc (chỉ đọc, cùng thiết bị)</h2>
     ${ext.vocab ? `<p>Hazi-Viet: đã học ${ext.vocab.learned} thẻ từ.</p>` : '<p class="muted">Không đọc được tiến độ Hazi-Viet trên thiết bị này.</p>'}
     ${ext.grammar ? `<p>HSK3.0: đã chạm ${ext.grammar.lessonsTouched} bài, hoàn thành ${ext.grammar.sectionsDone} mục.</p>` : '<p class="muted">Không đọc được tiến độ HSK3.0 trên thiết bị này.</p>'}
     <p class="muted">Dashboard không ghi đè hai nguồn này; tiến độ chính thức của Dashboard lưu riêng.</p></section>
   <section class="card"><h2>Lịch sử học</h2>
-    ${[...state.history].reverse().slice(0, 60).map(h => { const LBL = { 'vocab-complete': 'Hoàn thành bài từ', 'grammar-complete': 'Hoàn thành bài ngữ pháp', 'review-right': 'Ôn tập đúng', 'review-wrong': 'Ôn tập chưa đúng', 'import': 'Nhập sao lưu (gộp)', 'import-replace': 'Nhập sao lưu (thay thế)' };
+    ${[...state.history].reverse().slice(0, 60).map(h => { const LBL = { 'vocab-complete': 'Hoàn thành bài từ', 'grammar-complete': 'Hoàn thành bài ngữ pháp', 'review-right': 'Ôn tập đúng', 'review-wrong': 'Ôn tập chưa đúng', 'import': 'Nhập sao lưu (gộp)', 'import-replace': 'Nhập sao lưu (thay thế)', 'grammar-recall': 'Tự nhớ lại cấu trúc', 'grammar-exercise-right': 'Bài vận dụng ngữ pháp đúng', 'grammar-exercise-wrong': 'Bài vận dụng ngữ pháp chưa đúng', 'grammar-production': 'Tự đặt câu (tự đánh giá)' };
       const det = h.action === 'vocab-complete' ? (() => { const l = vocab.lessons.find(x => x.id === h.detail); return l ? `HSK ${l.level} Bài ${l.number}` : ''; })() : h.action === 'grammar-complete' ? (() => { const l = grammar.lessons.find(x => x.id === h.detail); return l ? l.titleVi : ''; })() : h.action.startsWith('review') ? (() => { const key = String(h.detail).split(':').slice(1).join(':'); const it = state.items[key]; return it ? itemLabel(it) : ''; })() : h.detail;
       return `<p class="muted">${esc(h.date)} · ${LBL[h.action] || h.action}${det ? ' · ' + esc(det) : ''}</p>`; }).join('') || '<p class="muted">Chưa có lịch sử.</p>'}</section>`;
 }
@@ -544,7 +758,7 @@ function viewSettings() {
   const shift = shiftOf(today);
   if (!schedShift) schedShift = shift;
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.3')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.3')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>

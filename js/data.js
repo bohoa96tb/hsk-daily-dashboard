@@ -1,3 +1,4 @@
+import * as Core from './core.js?v=8';
 // Data adapters: read public JSON from the two existing sites. Nothing is written back to them.
 // GitHub Pages serves Access-Control-Allow-Origin: *, and all three sites share the
 // bohoa96tb.github.io origin, so fetches work directly. Slim indexes are cached in
@@ -7,9 +8,9 @@ export const GRAMMAR_JSON = 'https://bohoa96tb.github.io/HSK3.0/data/content.jso
 export const VOCAB_WORD_URL = id => `https://bohoa96tb.github.io/hazi-viet/vocabulary.html?word=${encodeURIComponent(id)}`;
 export const GRAMMAR_LESSON_URL = id => `https://bohoa96tb.github.io/HSK3.0/#/lesson/${encodeURIComponent(id)}`;
 
-const CACHE_V = 'hsk-daily.cache.vocab-v3';
-const CACHE_G = 'hsk-daily.cache.grammar-v3';
-const SLIM_VERSION = 3;
+const CACHE_V = 'hsk-daily.cache.vocab-v4';
+const CACHE_G = 'hsk-daily.cache.grammar-v4';
+const SLIM_VERSION = 4;
 
 function cacheGet(k) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v && v.slim && v.slimVersion === SLIM_VERSION ? v : null; } catch { return null; } }
 function cacheSet(k, slim) { try { localStorage.setItem(k, JSON.stringify({ at: Date.now(), slimVersion: SLIM_VERSION, slim })); } catch { /* cache is optional */ } }
@@ -49,6 +50,8 @@ export function slimGrammar(raw) {
         example: (k.examples && k.examples[0]) ? { zh: k.examples[0].zh, pinyin: k.examples[0].pinyin || '', noteVi: k.examples[0].noteVi || '' } : null,
         quickCheck: k.quickCheck ? { questionVi: k.quickCheck.questionVi || '', stemZh: k.quickCheck.stemZh || '', options: (k.quickCheck.options || []).map(o => ({ zh: o.zh, vi: o.vi || '' })), answer: Number(k.quickCheck.answer) || 1, explanationVi: k.quickCheck.explanationVi || '' } : null,
       })),
+      exercises: Core.filterGrammarExercises(c.exerciseSet),
+      applyTasks: Core.slimApplyTasks(c.apply),
     });
   }
   return { lessons, contentVersion: raw.contentVersion || '' };

@@ -192,6 +192,9 @@ export function mergeStates(existing, imported) {
     cur.vocabFinalized = !!(cur.vocabFinalized || day.vocabFinalized);
     cur.grammarFinalized = !!(cur.grammarFinalized || day.grammarFinalized);
     cur.grammarChecks = { ...(day.grammarChecks || {}), ...(cur.grammarChecks || {}) };
+    cur.grammarRecall = { ...(day.grammarRecall || {}), ...(cur.grammarRecall || {}) };
+    cur.grammarExercises = { ...(day.grammarExercises || {}), ...(cur.grammarExercises || {}) };
+    { const seenP = new Set((cur.grammarProduction || []).map(p => `${p.taskId}|${p.at}`)); cur.grammarProduction = [...(cur.grammarProduction || []), ...((day.grammarProduction || []).filter(p => !seenP.has(`${p.taskId}|${p.at}`)))]; }
     if ((day.reviewsDone || 0) > (cur.reviewsDone || 0)) cur.reviewsDone = day.reviewsDone;
     if ((day.reviewTotal || 0) > (cur.reviewTotal || 0)) cur.reviewTotal = day.reviewTotal;
     if (day.grammarStatus === 'done') cur.grammarStatus = 'done';
@@ -246,15 +249,17 @@ export function oftenWrong(state, limit = 8) {
 }
 
 export function recordQuiz(state, day, wordId, correct, today, meta = {}) {
+  const practice = meta.mode === 'practice'; // V1.3: practice never counts, never has SRS side effects
   const chk = { ...(day.wordChecks[wordId] || {}) };
-  const counted = meta.counted !== undefined ? meta.counted : !(chk.quizHistory && chk.quizHistory.length); // only the first attempt of the day counts toward classification
-  chk.quiz = { correct, at: today };
-  chk.quizHistory = [...(chk.quizHistory || []), { correct, at: today, type: meta.type || 'h2m', counted }];
+  const counted = practice ? false : (meta.counted !== undefined ? meta.counted : !(chk.quizHistory && chk.quizHistory.length)); // only the first attempt of the day counts toward classification
+  if (!practice) chk.quiz = { correct, at: today };
+  chk.quizHistory = [...(chk.quizHistory || []), { correct, at: today, kind: meta.kind || 'quiz', type: meta.type || 'h2m', counted, ...(practice ? { mode: 'practice' } : {}) }];
   day.wordChecks[wordId] = chk;
   const item = state.items[`word:${wordId}`];
   if (!item) return null;
   const it = { ...item, checkHistory: [...(item.checkHistory || [])] };
-  it.checkHistory.push({ date: today, kind: meta.kind || 'quiz', type: meta.type || 'h2m', correct, chosenId: meta.chosenId || null, counted });
+  it.checkHistory.push({ date: today, kind: meta.kind || 'quiz', type: meta.type || 'h2m', correct, chosenId: meta.chosenId || null, counted, ...(practice ? { mode: 'practice' } : {}) });
+  if (practice) { state.items[it.key] = it; return it; }
   if (correct) it.quizCorrect = (it.quizCorrect || 0) + 1; else it.quizWrong = (it.quizWrong || 0) + 1;
   if (it.mastered) { state.items[it.key] = it; return it; } // F10: record, but mastery/SRS untouched
   if (!correct) {
@@ -266,16 +271,97 @@ export function recordQuiz(state, day, wordId, correct, today, meta = {}) {
 }
 
 // Self-recall grading (Active Recall): level 2 = remembered clearly, 1 = fuzzy, 0 = forgot.
-export function recordRecall(state, day, wordId, level, today) {
-  if (level === 2) return recordQuiz(state, day, wordId, true, today, { kind: 'recall', type: 'recall' });
-  if (level === 0) return recordQuiz(state, day, wordId, false, today, { kind: 'recall', type: 'recall' });
-  day.wordChecks[wordId] = { ...(day.wordChecks[wordId] || {}), recall: { level: 1, at: today } };
+// meta.type distinguishes the direction: 'recall' (hanzi → meaning, legacy) vs
+// 'produce' (meaning → produce the word, V1.3). Both are kind 'recall' evidence.
+export function recordRecall(state, day, wordId, level, today, meta = {}) {
+  const type = meta.type || 'recall';
+  const mode = meta.mode || 'test';
+  if (level === 2) return recordQuiz(state, day, wordId, true, today, { kind: 'recall', type, mode });
+  if (level === 0) return recordQuiz(state, day, wordId, false, today, { kind: 'recall', type, mode });
+  if (mode !== 'practice') day.wordChecks[wordId] = { ...(day.wordChecks[wordId] || {}), recall: { level: 1, at: today, type } };
   const item = state.items[`word:${wordId}`];
   if (item && !item.mastered) {
-    const it = { ...item, checkHistory: [...(item.checkHistory || []), { date: today, kind: 'recall', type: 'recall', correct: false, fuzzy: true, counted: false }] };
+    const it = { ...item, checkHistory: [...(item.checkHistory || []), { date: today, kind: 'recall', type, correct: false, fuzzy: true, counted: false, ...(mode === 'practice' ? { mode: 'practice' } : {}) }] };
     state.items[it.key] = it; return it;
   }
   return item || null;
+}
+
+// V1.3: words the learner can recognize (latest counted quiz correct) but cannot
+// yet recall — the recognition/recall gap pool. Fuzzy recall counts as a gap
+// signal, never as a wrong answer. Sorted: failed recall → never recalled → stale.
+export function recallGapIds(state, today) {
+  const out = [];
+  for (const it of Object.values(state.items)) {
+    if (it.kind !== 'word') continue;
+    const counted = (it.checkHistory || []).filter(h => h.counted !== false && h.mode !== 'practice');
+    const quizzes = counted.filter(h => h.kind === 'quiz');
+    const recalls = (it.checkHistory || []).filter(h => h.kind === 'recall');
+    const lastQuiz = quizzes[quizzes.length - 1];
+    if (!lastQuiz || !lastQuiz.correct) continue;
+    const countedRecalls = recalls.filter(h => h.counted !== false && !h.fuzzy);
+    const lastRecall = countedRecalls[countedRecalls.length - 1];
+    const fuzzyOnly = recalls.some(h => h.fuzzy) && !lastRecall;
+    let rank = -1;
+    if (lastRecall && !lastRecall.correct) rank = 0;
+    else if (!lastRecall) rank = fuzzyOnly ? 0 : 1;
+    else if (diffDays(lastRecall.date, today) > 14) rank = 2;
+    if (rank >= 0) out.push({ id: it.id, rank });
+  }
+  return out.sort((a, b) => a.rank - b.rank).map(x => x.id);
+}
+
+// V1.3: confusion pairs from counted objective answers — which word was picked
+// when this one was the target, and vice versa. Top distractor source.
+export function confusionMap(state) {
+  const map = {};
+  const add = (a, b) => { if (a && b && a !== b) { map[a] = map[a] || {}; map[a][b] = (map[a][b] || 0) + 1; } };
+  for (const it of Object.values(state.items)) {
+    if (it.kind !== 'word') continue;
+    for (const h of it.checkHistory || []) {
+      if (h.kind === 'quiz' && h.counted !== false && !h.correct && h.chosenId) { add(it.id, h.chosenId); add(h.chosenId, it.id); }
+    }
+  }
+  return map;
+}
+
+// Tone-stripped pinyin comparison basis ("same syllable, different tone").
+export function syllableKey(pinyin) {
+  return String(pinyin || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ü/g, 'u').toLowerCase().replace(/[^a-z]/g, '');
+}
+
+// Mixed-session quota (V1.3): recognition 30%, produce 30%, listening 20%, pinyin 20%.
+export function sessionTypePlan(n) {
+  const produce = Math.round(n * 0.3), listen = Math.round(n * 0.2), pinyin = Math.round(n * 0.2);
+  return { produce, listen, pinyin, recog: Math.max(0, n - produce - listen - pinyin) };
+}
+
+// Grammar exercise filter (V1.3): only self-contained text items with a verified
+// answer — no image dependency anywhere, no listening-set items, stem required.
+export function filterGrammarExercises(exerciseSet) {
+  if (!exerciseSet || !Array.isArray(exerciseSet.items)) return [];
+  if (/nghe|listen/i.test(exerciseSet.titleVi || '')) return [];
+  const out = [];
+  for (const it of exerciseSet.items) {
+    if (!it.promptZh || !Array.isArray(it.options) || it.answer === undefined) continue;
+    if (it.image || it.options.some(o => o && o.image)) continue;
+    if (/nghe đoạn|nghe và|track|âm thanh/i.test(it.promptVi || '')) continue;
+    out.push({
+      id: it.id, promptVi: it.promptVi || '', promptZh: it.promptZh, promptPinyin: it.promptPinyin || '',
+      options: it.options.map(o => ({ zh: o.zh || '', pinyin: o.pinyin || '', vi: o.vi || '' })),
+      answer: Number(it.answer), explanationVi: it.explanationVi || '',
+    });
+  }
+  return out;
+}
+
+// Production ("apply") tasks, slimmed for the Dashboard.
+export function slimApplyTasks(apply) {
+  const tasks = (apply && apply.tasks) || [];
+  return tasks.filter(t => t && t.sampleZh).map(t => ({
+    id: t.id, titleVi: t.titleVi || '', situationVi: t.situationVi || t.promptVi || '',
+    sampleZh: t.sampleZh, samplePinyin: t.samplePinyin || '', sampleVi: t.sampleVi || '', swapVi: t.swapVi || '',
+  }));
 }
 
 // Recall grading for a regular SRS review: 2 advance, 0 fail, 1 stay + retry tomorrow (no extra).
@@ -294,11 +380,13 @@ export function buildWordItem(day, wordId, today) {
   const it = createItem('word', wordId, today);
   const chk = day.wordChecks[wordId] || {};
   if (chk.recall && !(chk.quizHistory && chk.quizHistory.length)) it.checkHistory.push({ date: chk.recall.at || today, kind: 'recall', type: 'recall', correct: false, fuzzy: true, counted: false });
+  let countedWrong = 0;
   for (const q of chk.quizHistory || (chk.quiz ? [chk.quiz] : [])) {
-    it.checkHistory.push({ date: q.at || today, kind: q.kind || 'quiz', type: q.type || 'h2m', correct: q.correct, counted: q.counted !== false });
-    if (q.correct) it.quizCorrect += 1; else it.quizWrong += 1;
+    it.checkHistory.push({ date: q.at || today, kind: q.kind || 'quiz', type: q.type || 'h2m', correct: q.correct, counted: q.counted !== false, ...(q.mode === 'practice' ? { mode: 'practice' } : {}) });
+    if (q.mode === 'practice') continue; // practice folds as history only — no counters, no weak flag
+    if (q.correct) it.quizCorrect += 1; else { it.quizWrong += 1; if (q.counted !== false) countedWrong += 1; }
   }
-  if (it.quizWrong > 0 || chk.self === 'weak') { it.weak = true; it.extraDue = addDays(today, 1); }
+  if (countedWrong > 0 || chk.self === 'weak') { it.weak = true; it.extraDue = addDays(today, 1); }
   return it;
 }
 

@@ -362,4 +362,57 @@ t('V1.2.2 reassignToday: swaps today safely (no duplicate SRS items, single adva
   assert.equal(r2.vocabChanged, false); assert.equal(r2.grammarChanged, false);
 });
 
+
+t('V1.3 recordQuiz practice mode: no counters, no weak, not counted, day progress untouched', () => {
+  const s = Core.freshState(); const day = { wordChecks: {} };
+  s.items['word:w1'] = Core.createItem('word', 'w1', '2026-11-01');
+  Core.recordQuiz(s, day, 'w1', false, '2026-11-11', { type: 'h2m', mode: 'practice' });
+  const it = s.items['word:w1'];
+  assert.equal(it.quizWrong, 0); assert.equal(it.weak, false); assert.equal(it.extraDue, null);
+  assert.equal(it.checkHistory.length, 1); assert.equal(it.checkHistory[0].counted, false); assert.equal(it.checkHistory[0].mode, 'practice');
+  assert.equal(day.wordChecks.w1.quiz, undefined);
+  assert.deepEqual(Core.accuracyByType(s), {});
+});
+t('V1.3 buildWordItem: practice folds without counters/weak; kind preserved', () => {
+  const day = { wordChecks: { w1: { self: 'learned', quizHistory: [
+    { correct: false, at: '2026-11-11', kind: 'quiz', type: 'h2m', counted: false, mode: 'practice' },
+    { correct: true, at: '2026-11-11', kind: 'recall', type: 'produce', counted: true },
+  ] } } };
+  const it = Core.buildWordItem(day, 'w1', '2026-11-11');
+  assert.equal(it.quizWrong, 0); assert.equal(it.quizCorrect, 1); assert.equal(it.weak, false);
+  assert.equal(it.checkHistory[1].kind, 'recall'); assert.equal(it.checkHistory[1].type, 'produce');
+});
+t('V1.3 recallGapIds: recognized but not recalled', () => {
+  const s = Core.freshState();
+  const mk = (id, hist) => { const it = Core.createItem('word', id, '2026-10-01'); it.checkHistory = hist; s.items[it.key] = it; };
+  mk('gapNoRecall', [{ date: '2026-11-10', kind: 'quiz', type: 'h2m', correct: true, counted: true }]);
+  mk('gapFailed', [{ date: '2026-11-10', kind: 'quiz', type: 'h2m', correct: true, counted: true }, { date: '2026-11-10', kind: 'recall', type: 'produce', correct: false, counted: true }]);
+  mk('fine', [{ date: '2026-11-10', kind: 'quiz', type: 'h2m', correct: true, counted: true }, { date: '2026-11-10', kind: 'recall', type: 'produce', correct: true, counted: true }]);
+  mk('notRecognized', [{ date: '2026-11-10', kind: 'quiz', type: 'h2m', correct: false, counted: true }]);
+  const gaps = Core.recallGapIds(s, '2026-11-11');
+  assert.deepEqual(gaps, ['gapFailed', 'gapNoRecall']);
+});
+t('V1.3 confusionMap + syllableKey + sessionTypePlan', () => {
+  const s = Core.freshState();
+  const it = Core.createItem('word', 'w1', '2026-11-01');
+  it.checkHistory = [{ date: '2026-11-10', kind: 'quiz', type: 'm2h', correct: false, counted: true, chosenId: 'w2' }];
+  s.items[it.key] = it;
+  const cm = Core.confusionMap(s);
+  assert.equal(cm.w1.w2, 1); assert.equal(cm.w2.w1, 1);
+  assert.equal(Core.syllableKey('Nǐ'), Core.syllableKey('nì'));
+  assert.notEqual(Core.syllableKey('mā'), Core.syllableKey('māma'.slice(0, 2) + 'x'));
+  const p = Core.sessionTypePlan(20);
+  assert.equal(p.produce + p.listen + p.pinyin + p.recog, 20);
+  assert.deepEqual([p.produce, p.listen, p.pinyin], [6, 4, 4]);
+});
+t('V1.3 grammar adapters against real source (AUDIT_DIR)', () => {
+  const dir = process.env.AUDIT_DIR; if (!dir) return;
+  const raw = JSON.parse(fs.readFileSync(dir + '/HSK3.0/data/content.json', 'utf8'));
+  const contents = [raw.pilot, ...raw.additionalLessons];
+  let ex = 0, ap = 0;
+  for (const c of contents) { ex += Core.filterGrammarExercises(c.exerciseSet).length; ap += Core.slimApplyTasks(c.apply).length; }
+  assert.equal(ex, 69); assert.equal(ap, 37);
+  const one = Core.filterGrammarExercises(contents[2].exerciseSet);
+  if (one.length) { assert.ok(one[0].promptZh); assert.ok(one[0].answer >= 1); }
+});
 console.log(`\n${pass} tests passed`);
