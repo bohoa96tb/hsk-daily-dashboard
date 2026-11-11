@@ -1,6 +1,6 @@
 // Storage: IndexedDB primary, localStorage fallback for state; localStorage for small settings.
 // Versioned payload + save-failure reporting. No cloud sync is claimed anywhere.
-import { freshState, DATA_VERSION } from './core.js?v=9';
+import { freshState, DATA_VERSION } from './core.js?v=10';
 
 const DB_NAME = 'hsk-daily-dashboard';
 const LS_STATE = 'hsk-daily-dashboard.state-v1';

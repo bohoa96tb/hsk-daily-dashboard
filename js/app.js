@@ -1,6 +1,6 @@
-import * as Core from './core.js?v=9';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=9';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=9';
+import * as Core from './core.js?v=10';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=10';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=10';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -383,9 +383,11 @@ function grammarStagePlan(gl, fromStage) {
   if (gl.points.length) stages.push({ key: 'recall', label: 'Nhớ lại cấu trúc', items: gl.points.slice(0, recallCap) });
   const qc = gl.points.filter(p => p.quickCheck);
   if (qc.length) stages.push({ key: 'recognize', label: 'Nhận biết', items: qc });
-  if (mode !== 'light' && (gl.exercises || []).length) stages.push({ key: 'apply', label: 'Vận dụng', items: gl.exercises.slice(0, mode === 'focused' ? 8 : 5) });
-  if (mode === 'focused' && (gl.applyTasks || []).length) stages.push({ key: 'produce', label: 'Tự đặt câu', items: gl.applyTasks.slice(0, 1) });
-  return fromStage === 'full' ? stages : stages.filter(st => st.key === fromStage);
+  if ((gl.exercises || []).length) stages.push({ key: 'apply', label: 'Vận dụng', items: gl.exercises.slice(0, mode === 'focused' ? 8 : 5) });
+  if ((gl.applyTasks || []).length) stages.push({ key: 'produce', label: 'Tự đặt câu', items: gl.applyTasks.slice(0, 1) });
+  if (fromStage !== 'full') return stages.filter(st => st.key === fromStage); // a single-stage chip always runs if its data exists
+  // The full session follows the load mode: Light = recall+recognize, Standard = +apply, Focused = +produce.
+  return stages.filter(st => st.key === 'recall' || st.key === 'recognize' || (st.key === 'apply' && mode !== 'light') || (st.key === 'produce' && mode === 'focused'));
 }
 function startGrammarSession(gl, fromStage) {
   const stages = grammarStagePlan(gl, fromStage);
@@ -758,7 +760,7 @@ function viewSettings() {
   const shift = shiftOf(today);
   if (!schedShift) schedShift = shift;
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.3.1')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.3.2')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>
