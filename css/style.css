@@ -51,7 +51,7 @@ a.btn{color:var(--ink)}
 .pattern{font-size:18px;background:#f4f6f2;border-radius:8px;padding:8px 10px}
 table.stat{width:100%;border-collapse:collapse}
 table.stat td,table.stat tr{padding:8px 0;border-bottom:1px solid var(--line)}
-table.stat strong{float:right}
+table.stat td.num{text-align:right;white-space:nowrap}
 .srow{display:grid;grid-template-columns:104px 1fr 58px 44px;gap:6px;margin-bottom:8px}
 .srow input{min-height:44px;border:1px solid var(--line);border-radius:10px;padding:8px;font-size:14px;width:100%}
 label select{display:block;width:100%;min-height:44px;margin:6px 0 12px;border:1px solid var(--line);border-radius:10px;padding:8px;background:#fff;font-size:15px}

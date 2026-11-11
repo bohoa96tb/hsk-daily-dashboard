@@ -329,25 +329,25 @@ function viewStats() {
   const ext = peekExternalProgress();
   $('#view').innerHTML = `${header('Thống kê', 'Trí nhớ tính từ kết quả kiểm tra thật, không tính nút tự đánh dấu')}
   <section class="card"><h2>Trí nhớ từ vựng</h2><table class="stat">
-    <tr><td>Tổng số từ đã học</td><strong>${ws.total}</strong></tr>
-    <tr><td>Nhớ tốt</td><strong>${ws.good}</strong></tr>
-    <tr><td>Đang ghi nhớ</td><strong>${ws.learning}</strong></tr>
-    <tr><td>Cần củng cố / chưa nhớ</td><strong>${ws.weak}</strong></tr>
-    <tr><td>Đã vượt qua mốc 60 ngày</td><strong>${ws.mastered60}</strong></tr></table></section>
+    <tr><td>Tổng số từ đã học</td><td class="num"><strong>${ws.total}</strong></td></tr>
+    <tr><td>Nhớ tốt</td><td class="num"><strong>${ws.good}</strong></td></tr>
+    <tr><td>Đang ghi nhớ</td><td class="num"><strong>${ws.learning}</strong></td></tr>
+    <tr><td>Cần củng cố / chưa nhớ</td><td class="num"><strong>${ws.weak}</strong></td></tr>
+    <tr><td>Đã vượt qua mốc 60 ngày</td><td class="num"><strong>${ws.mastered60}</strong></td></tr></table></section>
   <section class="card"><h2>Tiến độ thực chất</h2><table class="stat">
-    <tr><td>Tỷ lệ trả lời đúng (kiểm tra + ôn tập)</td><strong>${acc === null ? '—' : acc + '%'}</strong></tr>
-    <tr><td>Ngày học liên tục</td><strong>${streak} ngày</strong></tr>
-    <tr><td>Tuần này: ngày có học</td><strong>${week.activeDays}/7</strong></tr>
-    <tr><td>Tuần này: từ mới đã học</td><strong>${week.wordsLearned}</strong></tr>
-    <tr><td>Tuần này: bài ngữ pháp mới</td><strong>${week.grammarLearned}</strong></tr>
-    <tr><td>Tuần này: lượt ôn tập</td><strong>${week.reviews}</strong></tr>
-    <tr><td>Số từ cần ôn (đến hạn hôm nay)</td><strong>${Core.dueEntries(state, today).filter(e => e.item.kind === 'word').length}</strong></tr></table>
+    <tr><td>Tỷ lệ trả lời đúng (kiểm tra + ôn tập)</td><td class="num"><strong>${acc === null ? '—' : acc + '%'}</strong></td></tr>
+    <tr><td>Ngày học liên tục</td><td class="num"><strong>${streak} ngày</strong></td></tr>
+    <tr><td>Tuần này: ngày có học</td><td class="num"><strong>${week.activeDays}/7</strong></td></tr>
+    <tr><td>Tuần này: từ mới đã học</td><td class="num"><strong>${week.wordsLearned}</strong></td></tr>
+    <tr><td>Tuần này: bài ngữ pháp mới</td><td class="num"><strong>${week.grammarLearned}</strong></td></tr>
+    <tr><td>Tuần này: lượt ôn tập</td><td class="num"><strong>${week.reviews}</strong></td></tr>
+    <tr><td>Số từ cần ôn (đến hạn hôm nay)</td><td class="num"><strong>${Core.dueEntries(state, today).filter(e => e.item.kind === 'word').length}</strong></td></tr></table>
     <p class="muted">Thời gian học thực tế không được đo — Dashboard không ghi nhận thời gian bạn mở trang, nên không hiển thị con số đoán.</p></section>
   <section class="card"><h2>Ngữ pháp</h2><table class="stat">
-    <tr><td>Tổng số bài đã học</td><strong>${gs.total}</strong></tr>
-    <tr><td>Đã hoàn thành (qua 60 ngày)</td><strong>${gs.done}</strong></tr>
-    <tr><td>Đang học / đang ôn</td><strong>${gs.learning}</strong></tr>
-    <tr><td>Bài còn yếu</td><strong>${gs.weak}</strong></tr></table>
+    <tr><td>Tổng số bài đã học</td><td class="num"><strong>${gs.total}</strong></td></tr>
+    <tr><td>Đã hoàn thành (qua 60 ngày)</td><td class="num"><strong>${gs.done}</strong></td></tr>
+    <tr><td>Đang học / đang ôn</td><td class="num"><strong>${gs.learning}</strong></td></tr>
+    <tr><td>Bài còn yếu</td><td class="num"><strong>${gs.weak}</strong></td></tr></table>
     <div id="glist">${Object.values(state.items).filter(i => i.kind === 'grammar').map(it => { const g = grammar.lessons.find(l => l.id === it.id); return g ? `<p class="row between"><span>${esc(g.titleVi)}</span><a class="btn small" target="_blank" rel="noopener" href="${esc(GRAMMAR_LESSON_URL(g.id))}">Xem lại ↗</a></p>` : ''; }).join('') || '<p class="muted">Chưa có bài ngữ pháp nào.</p>'}</div></section>
   <section class="card"><h2>Tiến độ trên hai app gốc (chỉ đọc, cùng thiết bị)</h2>
     ${ext.vocab ? `<p>Hazi-Viet: đã học ${ext.vocab.learned} thẻ từ.</p>` : '<p class="muted">Không đọc được tiến độ Hazi-Viet trên thiết bị này.</p>'}
@@ -360,7 +360,7 @@ function viewStats() {
 function viewSettings() {
   const shift = shiftOf(today);
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.1')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>
