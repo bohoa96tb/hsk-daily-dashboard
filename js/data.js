@@ -1,4 +1,4 @@
-import * as Core from './core.js?v=8';
+import * as Core from './core.js?v=9';
 // Data adapters: read public JSON from the two existing sites. Nothing is written back to them.
 // GitHub Pages serves Access-Control-Allow-Origin: *, and all three sites share the
 // bohoa96tb.github.io origin, so fetches work directly. Slim indexes are cached in
