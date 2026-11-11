@@ -315,4 +315,24 @@ t('V1.2 grammar quickCheck gate data: kpWeak survives merge', () => {
   assert.deepEqual(m.items['grammar:g1'].kpWeak.sort(), ['kp1', 'kp2']);
 });
 
+t('V1.2.1 regression: manual position setters (clamp, offset reset, Done revive, independence, no data loss)', () => {
+  const st = Core.freshState();
+  st.curriculum.vocabIndex = 3; st.curriculum.vocabOffset = 16; st.curriculum.vocabDone = true;
+  st.curriculum.grammarIndex = 2; st.curriculum.grammarDone = true;
+  const dayBefore = JSON.stringify(st.days); const itemsBefore = JSON.stringify(st.items);
+  const i = Core.setVocabPosition(st, 5, 94);
+  assert.equal(i, 5); assert.equal(st.curriculum.vocabIndex, 5);
+  assert.equal(st.curriculum.vocabOffset, 0); // restart the chosen lesson from its beginning
+  assert.equal(st.curriculum.vocabDone, false); // picking a lesson revives a finished track
+  assert.equal(st.curriculum.grammarIndex, 2); // grammar untouched
+  assert.equal(st.curriculum.grammarDone, true);
+  const g = Core.setGrammarPosition(st, 7, 18);
+  assert.equal(g, 7); assert.equal(st.curriculum.grammarDone, false);
+  assert.equal(st.curriculum.vocabIndex, 5); // vocab untouched
+  assert.equal(Core.setVocabPosition(st, 999, 94), 93); // clamps to last lesson
+  assert.equal(Core.setVocabPosition(st, -4, 94), 0); // clamps to first lesson
+  assert.equal(JSON.stringify(st.days), dayBefore); // history/progress never touched
+  assert.equal(JSON.stringify(st.items), itemsBefore);
+});
+
 console.log(`\n${pass} tests passed`);

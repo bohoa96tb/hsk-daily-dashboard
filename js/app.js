@@ -1,6 +1,6 @@
-import * as Core from './core.js?v=4';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=4';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=4';
+import * as Core from './core.js?v=5';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=5';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=5';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -544,7 +544,7 @@ function viewSettings() {
   const shift = shiftOf(today);
   if (!schedShift) schedShift = shift;
   const wdNames = ['Chủ nhật', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'];
-  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2')}
+  $('#view').innerHTML = `${header('Cài đặt', 'Múi giờ: Asia/Tokyo · Ngày học tính theo JST · Phiên bản ứng dụng 1.2.1')}
   <section class="card"><h2>Ca làm việc hôm nay</h2><div class="row">
     <button class="btn ${shift === 'day' ? 'primary' : ''}" id="shDay">☀️ Ca ngày</button>
     <button class="btn ${shift === 'night' ? 'primary' : ''}" id="shNight">🌙 Ca tối</button></div>
@@ -553,16 +553,20 @@ function viewSettings() {
       <option value="">Theo ca mặc định (${settings.shift === 'day' ? 'ngày' : 'tối'})</option>
       <option value="day" ${settings.weekdayShifts[i] === 'day' ? 'selected' : ''}>Ca ngày</option>
       <option value="night" ${settings.weekdayShifts[i] === 'night' ? 'selected' : ''}>Ca tối</option></select></label>`).join('')}
+    <p id="shiftMsg" class="pos-msg" role="status"></p>
   </section>
   <section class="card"><h2>Mức tải học mỗi ngày</h2>
     <label>Mức tải<select id="loadMode">
       ${Object.entries(LOAD_MODES).map(([k, m]) => `<option value="${k}" ${settings.loadMode === k ? 'selected' : ''}>${m.label} — tối đa ${m.target} từ mới/ngày, lượt ôn ${m.review} mục, kiểm tra ${m.quiz} câu</option>`).join('')}
     </select></label>
-    <p class="muted">Mức tải chỉ đổi số từ mới được giao và độ dài phiên — không đổi khoảng ôn 1–3–7–14–60. Phần từ chưa học của bài sẽ được giao tiếp vào ngày sau, không mất bài.</p></section>
+    <p class="muted">Mức tải chỉ đổi số từ mới được giao và độ dài phiên — không đổi khoảng ôn 1–3–7–14–60. Phần từ chưa học của bài sẽ được giao tiếp vào ngày sau, không mất bài.</p>
+    <p id="loadMsg" class="pos-msg" role="status"></p></section>
   <section class="card"><h2>Vị trí học hiện tại</h2>
     <label>Bài từ vựng tiếp theo<select id="vocabPos">${vocab.lessons.map((l, i) => `<option value="${i}" ${i === state.curriculum.vocabIndex ? 'selected' : ''}>HSK ${l.level} · Bài ${l.number} — ${esc(l.title)}</option>`).join('')}</select></label>
     <label>Bài ngữ pháp tiếp theo<select id="grammarPos">${grammar.lessons.map((l, i) => `<option value="${i}" ${i === state.curriculum.grammarIndex ? 'selected' : ''}>${esc(l.level)} · Bài ${l.number} — ${esc(l.titleVi)}</option>`).join('')}</select></label>
-    <p class="muted">Chỉ đổi khi bạn muốn bắt đầu từ vị trí khác. Ngày hôm nay đã tạo sẽ giữ nguyên bài đã giao.</p></section>
+    <p class="muted">Chỉ đổi khi bạn muốn bắt đầu từ vị trí khác. Ngày hôm nay đã tạo sẽ giữ nguyên bài đã giao.</p>
+    <p id="posPreview" class="pos-preview"></p>
+    <p id="posMsg" class="pos-msg" role="status"></p></section>
   <section class="card"><h2>Lịch học (sửa trực tiếp)</h2>
     <label>Đang sửa lịch của<select id="schedShift"><option value="day" ${schedShift === 'day' ? 'selected' : ''}>Ca ngày</option><option value="night" ${schedShift === 'night' ? 'selected' : ''}>Ca tối</option></select></label>
     <div id="sched">
@@ -579,10 +583,26 @@ function viewSettings() {
     <p class="muted" id="importMsg"></p></section>`;
   $('#shDay').onclick = async () => { settings.shiftOverrides[today] = 'day'; await persist(); render(); };
   $('#shNight').onclick = async () => { settings.shiftOverrides[today] = 'night'; await persist(); render(); };
-  document.querySelectorAll('[data-wd]').forEach(sel => sel.onchange = async () => { if (sel.value) settings.weekdayShifts[sel.dataset.wd] = sel.value; else delete settings.weekdayShifts[sel.dataset.wd]; await persist(); });
-  $('#vocabPos').onchange = async e => { state.curriculum.vocabIndex = Number(e.target.value); state.curriculum.vocabOffset = 0; await persist(); warn('Đã đổi vị trí từ vựng cho các ngày tiếp theo (bắt đầu từ đầu bài).'); };
-  $('#grammarPos').onchange = async e => { state.curriculum.grammarIndex = Number(e.target.value); await persist(); warn('Đã đổi vị trí ngữ pháp cho các ngày tiếp theo.'); };
-  $('#loadMode').onchange = async e => { settings.loadMode = e.target.value; await persist(); warn('Đã đổi mức tải — áp dụng từ ngày học tiếp theo.'); };
+  const posPreviewText = () => {
+    const vl = state.curriculum.vocabDone ? null : vocab.lessons[state.curriculum.vocabIndex];
+    const gl = state.curriculum.grammarDone ? null : grammar.lessons[state.curriculum.grammarIndex];
+    return `Ngày học tiếp theo sẽ bắt đầu: Từ vựng — ${vl ? `HSK ${vl.level} · Bài ${vl.number}: ${vl.title}` : 'đã hoàn thành chương trình'} · Ngữ pháp — ${gl ? `${gl.level} · Bài ${gl.number}: ${gl.titleVi}` : 'đã hoàn thành chương trình'}`;
+  };
+  $('#posPreview').textContent = posPreviewText();
+  document.querySelectorAll('[data-wd]').forEach(sel => sel.onchange = async () => { if (sel.value) settings.weekdayShifts[sel.dataset.wd] = sel.value; else delete settings.weekdayShifts[sel.dataset.wd]; await persist(); $('#shiftMsg').textContent = '✓ Đã lưu ca mặc định theo thứ.'; });
+  $('#vocabPos').onchange = async e => {
+    Core.setVocabPosition(state, Number(e.target.value), vocab.lessons.length);
+    await persist();
+    $('#posPreview').textContent = posPreviewText();
+    $('#posMsg').textContent = '✓ Đã cập nhật vị trí học. Áp dụng cho ngày học tiếp theo.';
+  };
+  $('#grammarPos').onchange = async e => {
+    Core.setGrammarPosition(state, Number(e.target.value), grammar.lessons.length);
+    await persist();
+    $('#posPreview').textContent = posPreviewText();
+    $('#posMsg').textContent = '✓ Đã cập nhật vị trí học. Áp dụng cho ngày học tiếp theo.';
+  };
+  $('#loadMode').onchange = async e => { settings.loadMode = e.target.value; await persist(); $('#loadMsg').textContent = '✓ Đã đổi mức tải — áp dụng từ ngày học tiếp theo.'; };
   $('#schedShift').onchange = e => { schedShift = e.target.value; render(); };
   const sched = settings.schedules[schedShift];
   document.querySelectorAll('[data-si]').forEach(inp => inp.onchange = async () => { const b = sched[Number(inp.dataset.si)]; if (inp.dataset.f === 'minutes') b.minutes = Math.max(1, Number(inp.value) || 1); else b[inp.dataset.f] = inp.value; await persist(); });

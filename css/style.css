@@ -85,3 +85,7 @@ details.wex summary{cursor:pointer;font-weight:600;min-height:44px;display:flex;
   .srow{grid-template-columns:1fr 58px 44px;grid-template-areas:"time min del" "title title title"}
   .srow input[data-f="time"]{grid-area:time}.srow input[data-f="minutes"]{grid-area:min}.srow input[data-f="title"]{grid-area:title}.srow .icon-btn{grid-area:del}
 }
+
+/* V1.2.1 inline confirmations in Settings */
+.pos-preview{background:#f4f6f2;border-radius:10px;padding:8px 10px;font-size:14px}
+.pos-msg{color:var(--accent2);font-weight:600;min-height:20px}

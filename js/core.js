@@ -304,6 +304,22 @@ export function buildWordItem(day, wordId, today) {
 
 // Curriculum completion: advancing past the last lesson sets a done flag
 // instead of clamping back onto the last lesson.
+// Manual curriculum positioning (Settings). Clamps to range, restarts the
+// lesson from its beginning (offset 0) and revives a finished track when the
+// user picks a lesson inside the catalogue. Never touches days/items/history.
+export function setVocabPosition(state, idx, total) {
+  const i = Math.max(0, Math.min(Number(idx) || 0, Math.max(0, (total || 0) - 1)));
+  state.curriculum.vocabIndex = i;
+  state.curriculum.vocabOffset = 0;
+  if (total > 0) state.curriculum.vocabDone = false;
+  return i;
+}
+export function setGrammarPosition(state, idx, total) {
+  const i = Math.max(0, Math.min(Number(idx) || 0, Math.max(0, (total || 0) - 1)));
+  state.curriculum.grammarIndex = i;
+  if (total > 0) state.curriculum.grammarDone = false;
+  return i;
+}
 export function advanceVocab(state, total) {
   state.curriculum.vocabIndex += 1;
   if (state.curriculum.vocabIndex >= total) { state.curriculum.vocabIndex = total; state.curriculum.vocabDone = true; state.curriculum.vocabSeen = Math.max(state.curriculum.vocabSeen || 0, total); }

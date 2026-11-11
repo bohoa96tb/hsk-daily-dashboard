@@ -1,7 +1,7 @@
 // Service worker — network-first with cache fallback.
 // Fresh content wins whenever the network works; the cached shell and data
 // keep the app usable offline. Bump CACHE when the shell changes.
-const CACHE = 'hsk-daily-v1.2';
+const CACHE = 'hsk-daily-v1.2.1';
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
