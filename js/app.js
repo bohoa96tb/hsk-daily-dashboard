@@ -1,7 +1,7 @@
-import * as Core from './core.js?v=2';
-import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=2';
-import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=2';
-import { mergeStates } from './core.js?v=2';
+import * as Core from './core.js?v=3';
+import { loadState, saveState, loadSettings, saveSettings, exportJson } from './store.js?v=3';
+import { loadVocab, loadGrammar, VOCAB_WORD_URL, GRAMMAR_LESSON_URL, peekExternalProgress } from './data.js?v=3';
+import { mergeStates } from './core.js?v=3';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
